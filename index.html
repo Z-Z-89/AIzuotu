@@ -1333,26 +1333,6 @@ function limitImgSize(src, maxDim) {
   });
 }
 
-async function genImgDirect(prompt, refItem) {
-  const cfg = getActiveApiConfig('image');
-  if (!cfg) return null;
-  const a = refItem?.analysis;
-  const refDesc = a ? `产品名称：${a.product||''}。功能作用：${a.function||''}。核心卖点：${a.selling||''}。客户痛点：${a.pain||''}。` : '';
-  const fullPrompt = `${prompt}。${refDesc}重要：必须严格保持与描述中的产品外观完全一致。`;
-  try {
-    const res = await fetch(BASE_URL + '/api/proxy-image', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: fullPrompt, n: 1, size: '1024x1024' })
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const item = data.data?.[0];
-    if (item?.b64_json) return 'data:image/png;base64,' + item.b64_json;
-    if (item?.url) return item.url;
-  } catch(e) {}
-  return null;
-}
-
 function fetchImageAndAdd(imgUrl, srcItem, logMsg, optX, optY, optW, optH) {
   const x = optX !== undefined ? optX : (srcItem ? srcItem.x + 30 : 100);
   const y = optY !== undefined ? optY : (srcItem ? srcItem.y + 30 : 100);
@@ -1712,6 +1692,72 @@ function handleBadgeRemoved(badge) {
 }
 
 // ========== IMAGE GENERATION ==========
+async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
+  const cfg = getActiveApiConfig('image');
+  if (!cfg) { addLog(`第 ${idx} 张${type}生成失败: 未配置作图模型`); return; }
+  addLog(`Xais: 正在上传参考图...`);
+  const cc = document.createElement('canvas');
+  const img = new Image();
+  img.onload = async function() {
+    cc.width = Math.min(img.width, 512);
+    cc.height = Math.min(img.height, 512);
+    const cx = cc.getContext('2d');
+    cx.drawImage(img, 0, 0, cc.width, cc.height);
+    const b64 = cc.toDataURL('image/jpeg', 0.85);
+    const publicUrl = await uploadImageToHost(b64);
+    if (!publicUrl) { addLog('⚠️ 参考图上传失败'); return; }
+    addLog('参考图已上传');
+    const reqId = String(Date.now()).slice(-11);
+    try {
+      const startRes = await fetch(BASE_URL + '/api/fetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: cfg.url + '/xais/workerTaskStart', method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json', 'x-request-id': reqId },
+          body: JSON.stringify({ prompt: promptText, model: cfg.model, ref: [publicUrl] })
+        })
+      });
+      const startText = await startRes.text().catch(() => '');
+      if (!startRes.ok) { addLog(`Xais 任务提交失败 (${startRes.status})`); return; }
+      const taskId = startText.replace(/^"(.*)"$/, '$1').trim();
+      if (!taskId) { addLog('Xais 未返回任务ID'); return; }
+      addLog(`Xais 任务已提交: ${taskId}`);
+      let resultKey = null;
+      for (let p = 0; p < 120; p++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pollRes = await fetch(BASE_URL + '/api/fetch', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: cfg.url + '/xais/workerTaskWait?json=1&id=' + encodeURIComponent(taskId),
+            method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+          })
+        });
+        const pollText = await pollRes.text().catch(() => '');
+        let pollData;
+        try { pollData = JSON.parse(pollText); } catch { continue; }
+        if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') { addLog(`Xais 任务失败: ${pollData.error}`); break; }
+        if (pollData.progress === 100 && pollData.result && pollData.result.length > 0) { resultKey = pollData.result[0]; break; }
+      }
+      if (!resultKey) { addLog(`第 ${idx} 张${type}生成失败: 未获取到图片`); return; }
+      const attRes = await fetch(BASE_URL + '/api/fetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: cfg.url + '/xais/attUrls?att=' + encodeURIComponent(resultKey),
+          method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+        })
+      });
+      const attText = await attRes.text().catch(() => '');
+      let attData;
+      try { attData = JSON.parse(attText); } catch { attData = null; }
+      const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
+      fetchImageAndAdd(finalUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+      try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { if (type==='主图') p.mainCompleted = (p.mainCompleted||0)+1; else p.detailCompleted = (p.detailCompleted||0)+1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
+    } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+  };
+  img.onerror = () => addLog(`第 ${idx} 张${type}生成失败: 无法加载参考图`);
+  img.src = refItem.src;
+}
+
 function generateMainImages(refItem, batchOffset) {
   const count = state.bottomMainCount;
   const platform = state.bottomPlatform;
@@ -1749,36 +1795,10 @@ function generateMainImages(refItem, batchOffset) {
         const promptText = promptList[i];
       addLog(`AI 作图模型: 正在生成第 ${idx} 张主图...`);
       setTimeout(() => {
-        const refImg = new Image();
-        refImg.onload = function() {
-          const cc = document.createElement('canvas');
-          cc.width = Math.min(refImg.width, 128);
-          cc.height = Math.min(refImg.height, 128);
-          const cx = cc.getContext('2d');
-          cx.drawImage(refImg, 0, 0, cc.width, cc.height);
-          const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
-          const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
-          const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
-          const imgContent = [
-            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。【单张图片的场景、构图、氛围描述 + 文案使用${lang}语言】。重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。`}
-          ];
-          callAI('image', '产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。', imgContent, 2048).then(imgReply => {
-            if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
-              addLog(`第 ${idx} 张主图生成失败`); return;
-            }
-            const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
-            const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
-            const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
-            if (imgUrl) {
-              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800);
-              try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { p.mainCompleted = (p.mainCompleted || 0) + 1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
-            } else {
-              addLog(`第 ${idx} 张主图生成失败: 未获取到图片链接`);
-            }
-          });
-        };
-        refImg.src = refItem.src;
+        const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
+        const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
+        const fullPrompt = `${promptText}。【单张图片的场景、构图、氛围描述 + 文案使用${lang}语言】。重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。`;
+        generateXaisImage(fullPrompt, refItem, bx, by, 800, 800, idx, '主图');
       }, i * 4000);
     }
     addChatMessage('assistant', `正在为 ${platform} 生成 ${count} 张 ${lang} 主图...`);
@@ -1826,36 +1846,10 @@ function generateDetailImages(refItem, batchOffset) {
         const promptText = promptList[i];
         addLog(`AI 作图模型: 正在生成第 ${idx} 张详情图...`);
         setTimeout(() => {
-          const refImg = new Image();
-          refImg.onload = function() {
-            const cc = document.createElement('canvas');
-            cc.width = Math.min(refImg.width, 128);
-            cc.height = Math.min(refImg.height, 128);
-            const cx = cc.getContext('2d');
-            cx.drawImage(refImg, 0, 0, cc.width, cc.height);
-            const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
           const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
-          const by = refItem ? refItem.y + ((idx-1) * 1127) : 100;
-          const imgContent = [
-            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。画面内所有文案使用${lang}语言，文案置于背景区域，严禁遮挡覆盖产品，产品作为视觉核心清晰突出。重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。`}
-          ];
-          callAI('image', '产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。', imgContent, 2048).then(imgReply => {
-            if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
-              addLog(`第 ${idx} 张详情图生成失败`); return;
-            }
-            const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
-            const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
-            const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
-            if (imgUrl) {
-              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 800, 1067);
-              try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { p.detailCompleted = (p.detailCompleted || 0) + 1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
-            } else {
-              addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
-            }
-          });
-          };
-          refImg.src = refItem.src;
+          const by = refItem ? refItem.y + ((idx-1) * 240) : 100;
+          const fullPrompt = `${promptText}。画面内所有文案使用${lang}语言，文案置于背景区域，严禁遮挡覆盖产品，产品作为视觉核心清晰突出。重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。`;
+          generateXaisImage(fullPrompt, refItem, bx, by, 140, 186, idx, '详情图');
         }, i * 4000);
       }
       addChatMessage('assistant', `正在为 ${platform} 生成 ${count} 张 ${lang} 详情图...`);

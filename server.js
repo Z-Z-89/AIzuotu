@@ -1,11 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
-const zlib = require('zlib');
 const app = express();
 const PORT = process.env.PORT || 3001;
+const TEMP_DIR = path.join(__dirname, 'temp_uploads');
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
@@ -26,31 +29,19 @@ app.get('/api/image-proxy', async (req, res) => {
   }
 });
 
-// Free image hosting upload
+// Local image upload (stores temporarily, serves via /api/temp/)
 app.post('/api/upload', express.raw({ type: 'application/octet-stream', limit: '10mb' }), async (req, res) => {
   try {
-    const b64 = req.body.toString('base64');
-    const formData = `key=6d207e02198a847aa98d0a2a901485a5&source=${encodeURIComponent(b64)}&format=json`;
-    const result = await new Promise((resolve, reject) => {
-      const r = https.request('https://freeimage.host/api/1/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(formData) },
-        timeout: 30000
-      }, (res2) => {
-        let d = []; res2.on('data', c => d.push(c));
-        res2.on('end', () => {
-          const t = Buffer.concat(d).toString();
-          if (res2.statusCode !== 200) return reject({ status: res2.statusCode, text: t });
-          try { resolve(JSON.parse(t)); } catch(e) { reject({ status: 500, text: t }); }
-        });
-      });
-      r.on('error', e => reject({ status: 500, text: e.message }));
-      r.write(formData); r.end();
-    });
-    const url = result?.image?.url?.replace(/\\\//g, '/');
-    if (url) res.json({ url });
-    else res.status(500).json({ error: 'Upload failed', detail: result });
-  } catch(e) { res.status(500).json({ error: e.text || e.message }); }
+    const ext = req.headers['content-type']?.includes('png') ? '.png' : '.jpg';
+    const name = crypto.randomBytes(16).toString('hex') + ext;
+    fs.writeFileSync(path.join(TEMP_DIR, name), req.body);
+    res.json({ url: `${req.protocol}://${req.get('host')}/api/temp/${name}` });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/temp/:name', (req, res) => {
+  const file = path.join(TEMP_DIR, path.basename(req.params.name));
+  if (!fs.existsSync(file)) return res.status(404).end();
+  res.sendFile(file);
 });
 
 // Generic proxy for any API call (bypass CORS)
