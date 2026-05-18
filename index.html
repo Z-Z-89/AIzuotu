@@ -366,11 +366,12 @@ function init() {
   document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
   addLog('系统初始化完成');
   updateLogModelInfo();
-  // Restore cursor badges in chat input (only pin badge, not image badge)
-  if (state.currentPinCursor !== null) {
-    const pinId = state.currentImageCursor || (state.items.find(i => i.pins && i.pins.some(p => p.idx === state.currentPinCursor))?.id);
-    if (pinId) insertCursorBadge('pin', pinId, state.currentPinCursor);
-  }
+  // Restore all pin badges in chat input
+  state.items.forEach(item => {
+    if (item.pins && item.pins.length > 0) {
+      item.pins.forEach(p => insertCursorBadge('pin', item.id, p.idx));
+    }
+  });
   try {
     const plan = JSON.parse(localStorage.getItem('aiecom_batch_plan'));
     if (plan && plan.startedAt && Date.now() - plan.startedAt < 600000) {
@@ -1401,10 +1402,11 @@ function downloadItem(id) {
 }
 
 // ========== PIN SYSTEM ==========
-function getNextPinIdx(item) {
-  if (!item.pins || item.pins.length === 0) return 1;
+function getNextPinIdx() {
   const used = {};
-  item.pins.forEach(p => { if (p.idx) used[p.idx] = true; });
+  state.items.forEach(item => {
+    if (item.pins) item.pins.forEach(p => { if (p.idx !== undefined) used[p.idx] = true; });
+  });
   let idx = 1;
   while (used[idx]) idx++;
   return idx;
@@ -1414,7 +1416,7 @@ function addPin(itemId, rx, ry) {
   const item = state.items.find(i => i.id === itemId);
   if (!item) return;
   if (!item.pins) item.pins = [];
-  const pinIdx = getNextPinIdx(item);
+  const pinIdx = getNextPinIdx();
   item.pins.push({rx, ry, idx: pinIdx});
   selectItem(itemId, true);
   renderPins(item);
@@ -1446,23 +1448,9 @@ function insertCursorBadge(type, id, pinIdx) {
   if (type === 'pin') span.dataset.pinIdx = pinIdx;
   const label = type === 'image' ? `🖼 图片 ${id}` : `📍 定位 ${pinIdx}`;
   span.innerHTML = `${label} <span class="remove-cursor" contenteditable="false" onclick="removeInlineCursor(this)">✕</span>`;
-  // Insert at cursor position or at end
-  const sel = window.getSelection();
-  let inserted = false;
-  if (sel && sel.rangeCount > 0 && input.contains(sel.anchorNode)) {
-    const range = sel.getRangeAt(0);
-    range.insertNode(span);
-    // Move cursor after the badge
-    range.setStartAfter(span);
-    range.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(range);
-    inserted = true;
-  }
-  if (!inserted) {
-    input.appendChild(span);
-    input.appendChild(document.createTextNode(' '));
-  }
+  // Always append to end to avoid contentEditable rendering issues
+  input.appendChild(span);
+  input.appendChild(document.createTextNode(' '));
   input.focus();
 }
 
