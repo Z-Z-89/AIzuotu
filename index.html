@@ -371,6 +371,17 @@ function init() {
     const pinId = state.currentImageCursor || (state.items.find(i => i.pins && i.pins.some(p => p.idx === state.currentPinCursor))?.id);
     if (pinId) insertCursorBadge('pin', pinId, state.currentPinCursor);
   }
+  try {
+    const plan = JSON.parse(localStorage.getItem('aiecom_batch_plan'));
+    if (plan && plan.startedAt && Date.now() - plan.startedAt < 600000) {
+      const mainDiff = plan.mainCount - (plan.mainCompleted || 0);
+      const detailDiff = plan.detailCount - (plan.detailCompleted || 0);
+      if (mainDiff > 0 || detailDiff > 0) {
+        addLog(`⚠️ 检测到上次生成未完成（主图 ${plan.mainCompleted||0}/${plan.mainCount}，详情图 ${plan.detailCompleted||0}/${plan.detailCount}），请重新点击一键生成`);
+      }
+    }
+    localStorage.removeItem('aiecom_batch_plan');
+  } catch(e) {}
   _suppressPlatformLog = true;
   onPlatformChange();
   _suppressPlatformLog = false;
@@ -1125,10 +1136,13 @@ async function callAI(type, systemPrompt, userContent, maxTok) {
   for (let retry = 0; retry < 3; retry++) {
     try {
       const body = {url: config.url, apiKey: config.key, model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }], maxTokens: maxTok || 1024};
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
       const res = await fetch(PROXY_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body), signal: controller.signal
       });
+      clearTimeout(timeout);
       if (res.status === 429) {
         const wait = (retry + 1) * 2000;
         addLog(`⚠️ API 限流(429)，${wait/1000}秒后重试(${retry+1}/3)...`);
@@ -1717,10 +1731,10 @@ function generateMainImages(refItem, batchOffset) {
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
     const userContent = [
-      {type:'text', text:`围绕参考图中的产品，帮我生成${count}张1:1电商主图提示词，文案用${lang}，文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。产品主体不变且清晰，文案集中排布在背景区域，不覆盖遮挡产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。只返回${count}条，每条用【】包裹。`},
+      {type:'text', text:`围绕参考图中的产品，帮我生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；不受原图摆放角度限制，可微调姿态，但不得改变产品形态，禁止添加产品以外的多余配饰。2.光影统一：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。3.背景自由但逻辑自洽：背景风格可根据产品需求自由设计（简约/华丽/场景化均可），但必须服务于产品，要么衬托质感，要么营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。4.文案规范：文案内容信息齐全，排版精致高级，主标题+核心卖点的层级清晰，疏密得当不稀疏单薄，也不堆砌成墙；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。5.人物规范：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。产品主体不变且清晰，文案集中排布在背景区域，不覆盖遮挡产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；不受原图摆放角度限制，可微调姿态，但不得改变产品形态，禁止添加产品以外的多余配饰。2.光影统一：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。3.背景自由但逻辑自洽：背景风格可根据产品需求自由设计（简约/华丽/场景化均可），但必须服务于产品，要么衬托质感，要么营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。4.文案规范：文案内容信息齐全，排版精致高级，主标题+核心卖点的层级清晰，疏密得当不稀疏单薄，也不堆砌成墙；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。5.人物规范：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
     if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
       addLog('主图生成失败: AI 语言模型未返回提示词'); return;
     }
@@ -1750,9 +1764,9 @@ function generateMainImages(refItem, batchOffset) {
           const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
           const imgContent = [
             {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。`}
+            {type:'text', text: `${promptText}。【单张图片的场景、构图、氛围描述 + 文案使用${lang}语言】。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。画面中的文案不覆盖产品主体，产品为画面视觉重心，清晰突出。`}
           ];
-          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。', imgContent, 2048).then(imgReply => {
+          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。画面中的文案不覆盖产品主体，产品为画面视觉重心，清晰突出。', imgContent, 2048).then(imgReply => {
             if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
               addLog(`第 ${idx} 张主图生成失败`); return;
             }
@@ -1761,6 +1775,7 @@ function generateMainImages(refItem, batchOffset) {
             const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
             if (imgUrl) {
               fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800);
+              try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { p.mainCompleted = (p.mainCompleted || 0) + 1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
             } else {
               addLog(`第 ${idx} 张主图生成失败: 未获取到图片链接`);
             }
@@ -1792,10 +1807,10 @@ function generateDetailImages(refItem, batchOffset) {
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
     const userContent = [
-      {type:'text', text:`现在你是一名设计大师，帮我生成${count}张3:4的电商详情图的提示词。文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。文案用${lang}。围绕参考图中的产品，重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`},
+      {type:'text', text:`现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。画面采用自然高级柔和光影，光影层次干净舒适，可根据画面氛围适配轻奢华丽、简约高级、实景日常等各类背景风格，背景自由设计不受局限。围绕参考图中的产品创作，重要：严格保持产品外观、造型、配色、细节与参考图完全一致，不更改产品本身形态，不受原图原有摆放角度、站位、摆放布局约束，可自由调整产品摆放姿态与组合排版，只禁止添加产品本身以外多余配饰物件，所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-  callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4电商详情图。文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。文案用${lang}。围绕参考图中的产品，重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。画面采用自然高级柔和光影，光影层次干净舒适，可根据画面氛围适配轻奢华丽、简约高级、实景日常等各类背景风格，背景自由设计不受局限。围绕参考图中的产品创作，重要：严格保持产品外观、造型、配色、细节与参考图完全一致，不更改产品本身形态，不受原图原有摆放角度、站位、摆放布局约束，可自由调整产品摆放姿态与组合排版，只禁止添加产品本身以外多余配饰物件，所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`, userContent, 2048).then(prompts => {
       if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
         addLog('详情图生成失败: AI 语言模型未返回提示词'); return;
       }
@@ -1825,9 +1840,9 @@ function generateDetailImages(refItem, batchOffset) {
           const by = refItem ? refItem.y + ((idx-1) * 1127) : 100;
           const imgContent = [
             {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。`}
+            {type:'text', text: `${promptText}。画面内所有文案使用${lang}语言，文案置于背景区域，严禁遮挡覆盖产品，产品作为视觉核心清晰突出。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。`}
           ];
-          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。', imgContent, 2048).then(imgReply => {
+          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。', imgContent, 2048).then(imgReply => {
             if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
               addLog(`第 ${idx} 张详情图生成失败`); return;
             }
@@ -1836,6 +1851,7 @@ function generateDetailImages(refItem, batchOffset) {
             const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
             if (imgUrl) {
               fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 800, 1067);
+              try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { p.detailCompleted = (p.detailCompleted || 0) + 1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
             } else {
               addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
             }
@@ -2039,6 +2055,7 @@ function oneClickGenerate() {
   const baseX = refItem.x + refItem.w + 30;
   const rightmost = state.items.reduce((max, item) => item.x >= baseX - 10 ? Math.max(max, item.x + item.w + 30) : max, baseX);
   const batchOffset = Math.max(0, rightmost - baseX);
+  try { localStorage.setItem('aiecom_batch_plan', JSON.stringify({startedAt:Date.now(), mainCount:state.bottomMainCount, detailCount:state.bottomDetailCount, mainCompleted:0, detailCompleted:0})); } catch(e) {}
   addLog('========== 🚀 一键生成启动 ==========');
   addLog(`平台: ${state.bottomPlatform} | 语言: ${state.bottomLanguage}`);
   let delay = 0;
@@ -2054,7 +2071,7 @@ function oneClickGenerate() {
     setTimeout(() => { addLog('--- 开始生成视频 ---'); generateVideos(refItem); }, delay);
     delay += state.bottomVideoCount * 600 + 2500;
   }
-  setTimeout(() => { addLog('✅ 一键生成全部完成！'); }, delay + 500);
+  setTimeout(() => { addLog('✅ 一键生成全部完成！'); try { localStorage.removeItem('aiecom_batch_plan'); } catch(e) {} }, delay + 500);
   addChatMessage('assistant', `一键生成已启动：${hasMain?state.bottomMainCount+'张主图 ':''}${hasDetail?state.bottomDetailCount+'张详情图 ':''}${hasVideo?state.bottomVideoCount+'个视频':''}`);
 }
 

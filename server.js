@@ -85,7 +85,7 @@ app.post('/api/proxy', async (req, res) => {
   base = v1m ? base.slice(0, -v1m[0].length) + '/v1' : base + '/v1';
   const targetUrl = base + '/chat/completions';
   console.log('Proxy URL:', targetUrl, 'Model:', model);
-  const body = JSON.stringify({ model, messages, max_tokens: maxTokens || 1024 });
+  const body = JSON.stringify({ model, messages, max_tokens: maxTokens || 1024, stream: false });
 
   try {
       const data = await new Promise((resolve, reject) => {
