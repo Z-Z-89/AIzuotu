@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const { spawn } = require('child_process');
+const zlib = require('zlib');
 const app = express();
 const PORT = 3001;
 
@@ -10,28 +12,16 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname)));
 
-app.get('/api/image-proxy', async (req, res) => {
+app.get('/api/image-proxy', (req, res) => {
   const imgUrl = req.query.url;
-  const auth = req.query.auth;
   if (!imgUrl) return res.status(400).json({error:'Missing url'});
-  try {
-    const headers = { 'User-Agent': 'Mozilla/5.0' };
-    if (auth && !imgUrl.includes('OSSAccessKeyId')) headers['Authorization'] = 'Bearer ' + auth;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    const imgRes = await fetch(imgUrl, { headers, signal: controller.signal });
-    clearTimeout(timeout);
-    if (!imgRes.ok) {
-      const errText = await imgRes.text().catch(() => '');
-      return res.status(imgRes.status).send('Proxy fetch failed: ' + imgRes.status + ' ' + errText.substring(0,100));
-    }
-    const buffer = await imgRes.arrayBuffer();
-    res.set('Content-Type', imgRes.headers.get('content-type') || 'image/png');
-    res.set('Cache-Control', 'public, max-age=3600');
-    res.send(Buffer.from(buffer));
-  } catch(e) {
-    res.status(500).send('Proxy error: ' + e.message);
-  }
+  const curlPath = process.env.WINDIR + '\\System32\\curl.exe';
+  const child = spawn(curlPath, ['-s', '-L', imgUrl], { timeout: 30000, windowsHide: true });
+  const chunks = [];
+  child.stdout.on('data', c => chunks.push(c));
+  child.stdout.on('end', () => { res.set('Cache-Control', 'public, max-age=3600'); res.send(Buffer.concat(chunks)); });
+  child.on('error', e => res.status(500).send('Proxy error: ' + e.message));
+  child.on('exit', code => { if (code !== 0 && chunks.length === 0) res.status(500).send('Proxy failed: ' + code); });
 });
 
 // Free image hosting upload
@@ -72,8 +62,8 @@ app.all('/api/fetch', express.json({ limit: '10mb' }), async (req, res) => {
     const timeout = setTimeout(() => controller.abort(), 300000);
     const apiRes = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeout);
-    const text = await apiRes.text();
-    res.status(apiRes.status).type(apiRes.headers.get('content-type') || 'application/json').send(text);
+    const buf = await apiRes.arrayBuffer();
+    res.status(apiRes.status).type(apiRes.headers.get('content-type') || 'application/octet-stream').send(Buffer.from(buf));
   } catch(e) {
     res.status(500).send('Proxy error: ' + e.message);
   }
@@ -89,21 +79,27 @@ app.post('/api/proxy', async (req, res) => {
   }
 
   let base = url.replace(/\/+$/, '');
-  if (!base.match(/\/v1$/)) base += '/v1';
+  const v1m = base.match(/(\/v1)\/?$/i);
+  base = v1m ? base.slice(0, -v1m[0].length) + '/v1' : base + '/v1';
   const targetUrl = base + '/chat/completions';
+  console.log('Proxy URL:', targetUrl, 'Model:', model);
   const body = JSON.stringify({ model, messages, max_tokens: maxTokens || 1024 });
 
   try {
-    const data = await new Promise((resolve, reject) => {
-      const req2 = https.request(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Length': Buffer.byteLength(body)
-        },
-        timeout: 300000
-      }, (res2) => {
+      const data = await new Promise((resolve, reject) => {
+        const isHttps = targetUrl.startsWith('https://');
+        const requester = isHttps ? https : http;
+        const parsed = new URL(targetUrl);
+        const req2 = requester.request({
+          hostname: parsed.hostname, port: parsed.port || (isHttps ? 443 : 80),
+          path: parsed.pathname + parsed.search, method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Length': Buffer.byteLength(body)
+          },
+          timeout: 300000
+        }, (res2) => {
         let chunks = [];
         res2.on('data', chunk => chunks.push(chunk));
         res2.on('end', () => {
@@ -129,6 +125,45 @@ app.post('/api/proxy', async (req, res) => {
     const text = err.text || err.message || 'Unknown error';
     console.error(`Proxy error ${status}: ${text.substring(0,200)}`);
     res.status(status).json({ error: text, status: status });
+  }
+});
+
+app.post('/api/proxy-image', async (req, res) => {
+  const { url, apiKey, model, prompt, n, size } = req.body;
+  if (!url || !apiKey || !model || !prompt) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  let base = url.replace(/\/+$/, '');
+  const v1m = base.match(/(\/v1)\/?$/i);
+  base = v1m ? base.slice(0, -v1m[0].length) + '/v1' : base + '/v1';
+  const targetUrl = base + '/images/generations';
+  const body = JSON.stringify({ model, prompt, n: n || 1, size: size || '1024x1024' });
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const isHttps = targetUrl.startsWith('https://');
+      const requester = isHttps ? https : http;
+      const parsed = new URL(targetUrl);
+      const req2 = requester.request({
+        hostname: parsed.hostname, port: parsed.port || (isHttps ? 443 : 80),
+        path: parsed.pathname + parsed.search, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(body) },
+        timeout: 300000
+      }, (res2) => {
+        let chunks = [];
+        res2.on('data', c => chunks.push(c));
+        res2.on('end', () => {
+          const text = Buffer.concat(chunks).toString();
+          if (res2.statusCode !== 200) { reject({ status: res2.statusCode, text }); return; }
+          try { resolve(JSON.parse(text)); } catch(e) { reject({ status: 500, text: 'Invalid JSON' }); }
+        });
+      });
+      req2.on('error', e => reject({ status: 500, text: e.message }));
+      req2.on('timeout', () => { req2.destroy(); reject({ status: 500, text: 'Timeout' }); });
+      req2.write(body); req2.end();
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.text || err.message });
   }
 });
 
