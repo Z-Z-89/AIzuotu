@@ -1717,10 +1717,10 @@ function generateMainImages(refItem, batchOffset) {
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
     const userContent = [
-      {type:'text', text:`围绕参考图中的产品，帮我生成${count}张1:1电商主图的提示词（文案要符合${platform}规定，不能违规），图片风格要统一，文案可以稍微丰富点。产品主体完全不变，只换背景、排版和文案，产品必须清晰。`},
+      {type:'text', text:`围绕参考图中的产品，帮我生成${count}张1:1电商主图提示词，文案用${lang}，文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。产品主体不变且清晰，文案集中排布在背景区域，不覆盖遮挡产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。只返回${count}条，每条用【】包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定，风格统一。产品主体不变且清晰，文案放背景不覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。产品主体不变且清晰，文案集中排布在背景区域，不覆盖遮挡产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
     if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
       addLog('主图生成失败: AI 语言模型未返回提示词'); return;
     }
@@ -1750,9 +1750,9 @@ function generateMainImages(refItem, batchOffset) {
           const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
           const imgContent = [
             {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。`}
+            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。`}
           ];
-          callAI('image', '严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。', imgContent, 2048).then(imgReply => {
+          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。', imgContent, 2048).then(imgReply => {
             if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
               addLog(`第 ${idx} 张主图生成失败`); return;
             }
@@ -1791,12 +1791,11 @@ function generateDetailImages(refItem, batchOffset) {
     const ctx = c.getContext('2d');
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
-    const last5 = count > 5 ? '，详情图最后5张为产品展示图片' : '';
     const userContent = [
-      {type:'text', text:`现在你是一名设计大师，帮我生成${count}张3:4的电商详情图的提示词（文案要符合${platform}规定，不能违规），详情图片风格要统一，文案要丰富${last5}。`},
+      {type:'text', text:`现在你是一名设计大师，帮我生成${count}张3:4的电商详情图的提示词。文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。文案用${lang}。围绕参考图中的产品，重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-    callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4电商详情图。整体风格统一，文案丰富${last5}。围绕参考图中的产品，产品主体不变，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4电商详情图。文案内容丰富饱满、信息齐全，排版疏密得当不稀疏单薄，符合${platform}规定，风格统一。文案用${lang}。围绕参考图中的产品，重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`, userContent, 2048).then(prompts => {
       if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
         addLog('详情图生成失败: AI 语言模型未返回提示词'); return;
       }
@@ -1823,12 +1822,12 @@ function generateDetailImages(refItem, batchOffset) {
             cx.drawImage(refImg, 0, 0, cc.width, cc.height);
             const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
           const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
-          const by = refItem ? refItem.y + ((idx-1) * 240) : 100;
+          const by = refItem ? refItem.y + ((idx-1) * 1127) : 100;
           const imgContent = [
             {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。`}
+            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。`}
           ];
-          callAI('image', '严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。', imgContent, 2048).then(imgReply => {
+          callAI('image', '严格保持产品外观、造型、配色、细节和参考图完全一致，不改动产品本身形态，不受参考图原有摆放角度、站位、排版姿势限制，可自由调整产品摆放姿态、排列布局，仅禁止额外增添产品自带以外的配饰物件，背景可随意更换。', imgContent, 2048).then(imgReply => {
             if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
               addLog(`第 ${idx} 张详情图生成失败`); return;
             }
@@ -1836,7 +1835,7 @@ function generateDetailImages(refItem, batchOffset) {
             const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
             const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
             if (imgUrl) {
-              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186);
+              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 800, 1067);
             } else {
               addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
             }

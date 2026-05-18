@@ -3,7 +3,6 @@ const cors = require('cors');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const { spawn } = require('child_process');
 const zlib = require('zlib');
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,16 +11,19 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname)));
 
-app.get('/api/image-proxy', (req, res) => {
+app.get('/api/image-proxy', async (req, res) => {
   const imgUrl = req.query.url;
   if (!imgUrl) return res.status(400).json({error:'Missing url'});
-  const curlPath = process.env.WINDIR + '\\System32\\curl.exe';
-  const child = spawn(curlPath, ['-s', '-L', imgUrl], { timeout: 30000, windowsHide: true });
-  const chunks = [];
-  child.stdout.on('data', c => chunks.push(c));
-  child.stdout.on('end', () => { res.set('Cache-Control', 'public, max-age=3600'); res.send(Buffer.concat(chunks)); });
-  child.on('error', e => res.status(500).send('Proxy error: ' + e.message));
-  child.on('exit', code => { if (code !== 0 && chunks.length === 0) res.status(500).send('Proxy failed: ' + code); });
+  try {
+    const apiRes = await fetch(imgUrl, { timeout: 30000 });
+    if (!apiRes.ok) return res.status(apiRes.status).send('Upstream error');
+    const buf = Buffer.from(await apiRes.arrayBuffer());
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type(apiRes.headers.get('content-type') || 'image/png');
+    res.send(buf);
+  } catch(e) {
+    res.status(500).send('Proxy error: ' + e.message);
+  }
 });
 
 // Free image hosting upload
