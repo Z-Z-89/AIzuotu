@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname), { index: 'index.html' }));
+app.use(express.static(path.join(__dirname)));
 
 app.get('/api/image-proxy', (req, res) => {
   const imgUrl = req.query.url;

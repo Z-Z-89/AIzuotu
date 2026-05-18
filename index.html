@@ -1748,25 +1748,22 @@ function generateMainImages(refItem, batchOffset) {
           const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
           const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
           const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
-          genImgDirect(promptText, refItem).then(src => {
-            if (src) { fetchImageAndAdd(src, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800); return; }
-            const imgContent = [
-              {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-              {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持生成的图片中的产品和参考图中的产品外观一致，不得添加任何额外元素。`}
-            ];
-            callAI('image', '严格保持生成的图片中的产品和参考图中的产品外观一致、清晰，不得添加任何元素。', imgContent, 2048).then(imgReply => {
-              if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
-                addLog(`第 ${idx} 张主图生成失败`); return;
-              }
-              const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
-              const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
-              const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
-              if (imgUrl) {
+          const imgContent = [
+            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
+            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。`}
+          ];
+          callAI('image', '严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。', imgContent, 2048).then(imgReply => {
+            if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
+              addLog(`第 ${idx} 张主图生成失败`); return;
+            }
+            const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
+            const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
+            const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
+            if (imgUrl) {
               fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800);
             } else {
               addLog(`第 ${idx} 张主图生成失败: 未获取到图片链接`);
             }
-          });
           });
         };
         refImg.src = refItem.src;
@@ -1827,26 +1824,23 @@ function generateDetailImages(refItem, batchOffset) {
             const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
           const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
           const by = refItem ? refItem.y + ((idx-1) * 240) : 100;
-          genImgDirect(promptText, refItem).then(src => {
-            if (src) { fetchImageAndAdd(src, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186); return; }
-              const imgContent = [
-                {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
-                {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持生成的图片中的产品和参考图中的产品外观一致，不得添加任何额外元素。`}
-              ];
-              callAI('image', '严格保持生成的图片中的产品和参考图中的产品外观一致、清晰，不得添加任何元素。', imgContent, 2048).then(imgReply => {
-                if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
-                  addLog(`第 ${idx} 张详情图生成失败`); return;
-                }
-                const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
-                const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
-                const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
-                if (imgUrl) {
-                  fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186);
-                } else {
-                  addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
-                }
-              });
-            });
+          const imgContent = [
+            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
+            {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。`}
+          ];
+          callAI('image', '严格保持图片内产品外观、造型、配色、细节与参考图完全一致，禁止给产品额外添加配饰、配件、装饰、图案，允许自由更换背景、调整场景、光影、产品摆放排版与构图。', imgContent, 2048).then(imgReply => {
+            if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
+              addLog(`第 ${idx} 张详情图生成失败`); return;
+            }
+            const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
+            const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
+            const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
+            if (imgUrl) {
+              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186);
+            } else {
+              addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
+            }
+          });
           };
           refImg.src = refItem.src;
         }, i * 4000);
