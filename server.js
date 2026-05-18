@@ -6,7 +6,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 const zlib = require('zlib');
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
@@ -102,6 +102,7 @@ app.post('/api/proxy', async (req, res) => {
         }, (res2) => {
         let chunks = [];
         res2.on('data', chunk => chunks.push(chunk));
+        res2.on('error', e => reject({ status: 500, text: 'Response stream error: ' + e.message }));
         res2.on('end', () => {
           const text = Buffer.concat(chunks).toString();
           if (res2.statusCode !== 200) {
@@ -151,6 +152,7 @@ app.post('/api/proxy-image', async (req, res) => {
       }, (res2) => {
         let chunks = [];
         res2.on('data', c => chunks.push(c));
+        res2.on('error', e => reject({ status: 500, text: 'Response stream error: ' + e.message }));
         res2.on('end', () => {
           const text = Buffer.concat(chunks).toString();
           if (res2.statusCode !== 200) { reject({ status: res2.statusCode, text }); return; }
@@ -165,6 +167,13 @@ app.post('/api/proxy-image', async (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.text || err.message });
   }
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason?.message || reason);
 });
 
 app.listen(PORT, () => {
