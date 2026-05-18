@@ -1,0 +1,3058 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 电商作图 & 视频生成</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none}
+:root{--bg:#f5f5f7;--panel-bg:#fff;--text:#1d1d1f;--border:#e5e5ea;--accent:#0071e3;--accent-hover:#0077ed;--shadow:0 2px 12px rgba(0,0,0,0.08);--radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.dark{--bg:#1c1c1e;--panel-bg:#2c2c2e;--text:#f5f5f7;--border:#3a3a3c;--shadow:0 2px 12px rgba(0,0,0,0.3)}
+body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+#app{display:flex;height:100vh;width:100vw}
+/* Center Canvas */
+#canvas-area{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+#canvas-container{position:absolute;top:0;left:0;width:100%;height:100%;cursor:grab}
+#canvas-container:active{cursor:grabbing}
+#canvas-inner{position:absolute;top:0;left:0;transform-origin:0 0}
+.canvas-item{position:absolute;cursor:move;transition:box-shadow .15s}
+.canvas-item:hover{box-shadow:0 0 0 2px var(--accent)}
+.canvas-item.selected{box-shadow:0 0 0 3px var(--accent),0 0 20px rgba(0,113,227,0.3)}
+.canvas-item img{display:block;max-width:none;pointer-events:none;object-fit:contain}
+.canvas-item .resize-handle{position:absolute;bottom:-6px;right:-6px;width:12px;height:12px;background:var(--accent);border-radius:50%;cursor:se-resize;z-index:10}
+.canvas-item .resize-handle::before{content:'';position:absolute;top:-8px;left:-8px;right:-8px;bottom:-8px;border-radius:50%}
+.canvas-item .pin-dot{position:absolute;z-index:20;pointer-events:none;font-size:44px;transform:translate(-50%,-100%);line-height:1;text-shadow:0 2px 8px rgba(0,0,0,0.5)}
+/* Video element */
+.canvas-item video{display:block;max-width:none;pointer-events:none;background:#000}
+/* Quick Edit Toolbar */
+#quick-toolbar{position:absolute;display:none;z-index:9999;background:var(--panel-bg);border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:6px 10px;gap:4px;align-items:center;white-space:nowrap;border:1px solid var(--border);transform:translateX(-50%)}
+#quick-toolbar.show{display:flex}
+#quick-toolbar button,#quick-toolbar .tool-btn{background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;color:var(--text);white-space:nowrap;transition:all .15s}
+#quick-toolbar button:hover,#quick-toolbar .tool-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+#quick-toolbar input[type=number]{width:50px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text);background:var(--bg)}
+#quick-toolbar .lock-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px;opacity:0.3;transition:opacity 0.2s}
+#quick-toolbar .lock-btn.active{opacity:1}
+/* Dropdown menus for toolbar */
+.tool-dropdown{display:none;position:absolute;left:50%;transform:translateX(-50%);background:var(--panel-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:10px;z-index:10000;min-width:180px}
+.tool-dropdown.below{top:100%;margin-top:4px}
+.tool-dropdown.above{bottom:100%;margin-bottom:4px}
+.tool-dropdown.show{display:block}
+.tool-dropdown label{display:block;font-size:12px;margin-bottom:4px;color:var(--text)}
+.tool-dropdown select,.tool-dropdown input{width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text);background:var(--bg);margin-bottom:6px}
+.tool-dropdown .dropdown-actions{display:flex;gap:4px;margin-top:6px}
+.tool-dropdown .dropdown-actions button{flex:1}
+/* Right Panel */
+#right-panel{width:320px;min-width:320px;display:flex;flex-direction:column;background:var(--panel-bg);border-left:1px solid var(--border);position:relative}
+.right-section{flex:1;display:flex;flex-direction:column;overflow:hidden;border-bottom:1px solid var(--border);position:relative}
+.right-section:last-child{border-bottom:none}
+.section-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:13px;font-weight:600;border-bottom:1px solid var(--border);flex-shrink:0}
+.section-header .del-btn{background:none;border:none;cursor:pointer;font-size:14px;color:#ff3b30;padding:2px 6px;border-radius:4px}
+.section-header .del-btn:hover{background:rgba(255,59,48,0.1)}
+.section-body{flex:1;overflow-y:auto;padding:10px 12px;font-size:13px;line-height:1.5}
+/* AI Analysis Panel */
+.analysis-item{margin-bottom:10px}
+.analysis-item .label{font-weight:600;font-size:12px;color:var(--accent);margin-bottom:2px}
+.analysis-item .content{font-size:13px;padding:4px 0;min-height:20px;outline:none;border-radius:4px;cursor:text;user-select:text}
+.analysis-item .content:focus{background:rgba(0,113,227,0.05);padding:4px 6px}
+/* Chat Panel */
+#chat-section{flex:1;display:flex;flex-direction:column}
+#chat-section .section-header{border-bottom:none}
+#chat-input-area{flex:1;display:flex;flex-direction:column;padding:6px 8px;gap:4px;background:var(--panel-bg)}
+.chat-editable{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;outline:none;font-size:13px;background:var(--bg);color:var(--text);font-family:var(--font);overflow-y:auto;min-height:60px;line-height:1.6;cursor:text;user-select:text}
+.chat-editable:focus{border-color:var(--accent)}
+.chat-editable:empty:before{content:attr(data-placeholder);color:#999;pointer-events:none}
+.cursor-badge-inline{display:inline-flex;align-items:center;gap:3px;background:var(--accent);color:#fff;padding:1px 8px;border-radius:12px;font-size:11px;font-weight:500;margin:1px 2px;line-height:1.6;user-select:none}
+.cursor-badge-inline .remove-cursor{background:none;border:none;color:#fff;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;opacity:0.7;margin-left:2px}
+.cursor-badge-inline .remove-cursor:hover{opacity:1}
+.chat-model-bar{display:flex;gap:4px;padding:2px 0;flex-shrink:0;position:relative;align-items:center}
+.chat-model-bar .model-btn{flex:1;padding:5px 0;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;font-size:11px;color:var(--text);text-align:center;position:relative;transition:all .15s}
+.chat-model-bar .model-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.model-popup{display:none;position:absolute;bottom:100%;background:var(--panel-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px;z-index:300;min-width:200px;max-height:200px;overflow-y:auto;margin-bottom:4px}
+.model-popup.show{display:block}
+.model-popup .model-option{padding:6px 10px;cursor:pointer;font-size:12px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;color:var(--text)}
+.model-popup .model-option:hover{background:var(--bg)}
+.model-popup .model-option.selected{background:rgba(0,113,227,0.1);color:var(--accent)}
+.model-popup .model-option .check{color:var(--accent);display:none}
+.model-popup .model-option.selected .check{display:inline}
+/* Bottom Floating Bar */
+#bottom-bar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:var(--panel-bg);border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:10px 16px;z-index:50;border:1px solid var(--border)}
+#bottom-bar .control-group{display:flex;align-items:center;gap:6px;font-size:12px}
+#bottom-bar .control-group label{white-space:nowrap;font-size:12px}
+#bottom-bar select,#bottom-bar input[type=number]{padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);color:var(--text);cursor:pointer}
+#bottom-bar input[type=checkbox]{cursor:pointer;width:16px;height:16px;accent-color:var(--accent)}
+#bottom-bar .separator{width:1px;height:24px;background:var(--border)}
+/* Settings Modal */
+#settings-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;align-items:center;justify-content:center}
+#settings-modal.show{display:flex}
+.modal-content{background:var(--panel-bg);border-radius:16px;padding:24px;width:520px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.modal-content h2{font-size:18px;margin-bottom:16px}
+.modal-tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.modal-tab{padding:8px 20px;cursor:pointer;border:none;background:none;font-size:13px;color:var(--text);border-bottom:2px solid transparent}
+.modal-tab.active{border-bottom-color:var(--accent);color:var(--accent)}
+.modal-pane{display:none}
+.modal-pane.active{display:block}
+.api-group{margin-bottom:12px;border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.api-group h3{font-size:13px;margin-bottom:6px}
+.api-field{margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.api-field label{font-size:11px;color:#888;min-width:52px;flex-shrink:0}
+.api-field input{flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg);color:var(--text);min-width:0}
+.api-actions{display:flex;gap:6px;margin-top:6px}
+.api-actions button{padding:5px 14px;border:none;border-radius:5px;background:var(--accent);color:#fff;cursor:pointer;font-size:12px;flex:1}
+.model-display{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.model-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;font-size:11px;background:var(--bg);border:1px solid var(--border)}
+.model-chip .chip-del{background:none;border:none;cursor:pointer;font-size:12px;color:#ff3b30;padding:0 2px;line-height:1;opacity:0.5}
+.model-chip .chip-del:hover{opacity:1}
+.theme-toggle{display:flex;align-items:center;gap:12px;padding:12px 0}
+.theme-toggle button{padding:8px 20px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;font-size:13px;color:var(--text)}
+.theme-toggle button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* Settings gear icon */
+#settings-gear{position:fixed;top:12px;right:340px;z-index:60;width:36px;height:36px;border-radius:50%;border:none;background:var(--panel-bg);box-shadow:var(--shadow);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;color:var(--text)}
+#settings-gear:hover{background:var(--accent);color:#fff}
+#zoom-control{position:fixed;top:12px;right:385px;z-index:60;display:flex;align-items:center;gap:2px;background:var(--panel-bg);border-radius:8px;box-shadow:var(--shadow);padding:2px 6px;border:1px solid var(--border)}
+#zoom-control button{width:24px;height:24px;border:none;background:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--text);border-radius:4px}
+#zoom-control button:hover{background:var(--accent);color:#fff}
+#zoom-control span{font-size:11px;min-width:32px;text-align:center;color:var(--text);user-select:none}
+/* Right-click selection */
+.selection-box{position:absolute;border:1px dashed var(--accent);background:rgba(0,113,227,0.08);z-index:40;pointer-events:none;display:none}
+.selection-box.show{display:block}
+/* Drawing cursor */
+#canvas-container.drawing-mode{cursor:crosshair}
+#canvas-container.erasing-mode{cursor:cell}
+/* Canvas watermark bg */
+.canvas-watermark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:48px;color:rgba(0,0,0,0.04);pointer-events:none;z-index:0;white-space:nowrap;font-weight:bold}
+.dark .canvas-watermark{color:rgba(255,255,255,0.04)}
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+/* Responsive */
+@media(max-width:900px){#right-panel{width:260px;min-width:260px}}
+@media(max-width:700px){#right-panel{width:200px;min-width:200px}#bottom-bar{flex-wrap:wrap;justify-content:center;padding:8px 12px;width:90%}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-area">
+    <div id="canvas-container">
+      <div class="canvas-watermark">AI 电商作图 · 拖拽上传图片开始</div>
+      <div id="selection-box" class="selection-box"></div>
+      <div id="canvas-inner"></div>
+    </div>
+    <div id="quick-toolbar"></div>
+    <div id="bottom-bar"></div>
+  </div>
+  <div id="right-panel">
+    <div class="right-section" id="analysis-section">
+      <div class="section-header">AI 分析面板 <button class="del-btn" onclick="clearAnalysis()">✕</button></div>
+      <div class="section-body" id="analysis-body">
+        <div class="analysis-item"><div class="label">产品识别</div><div class="content" contenteditable="true" id="analysis-product">点击图片后使用 AI 分析</div></div>
+        <div class="analysis-item"><div class="label">产品功能作用</div><div class="content" contenteditable="true" id="analysis-function">-</div></div>
+        <div class="analysis-item"><div class="label">核心卖点</div><div class="content" contenteditable="true" id="analysis-selling">-</div></div>
+        <div class="analysis-item"><div class="label">客户痛点</div><div class="content" contenteditable="true" id="analysis-pain">-</div></div>
+      </div>
+    </div>
+    <div class="right-section" id="log-section">
+      <div class="section-header">日志信息 <button class="del-btn" onclick="clearLogs()">✕</button></div>
+      <div class="section-body" id="log-body"></div>
+    </div>
+    <div class="right-section" id="chat-section">
+      <div class="section-header">AI 对话</div>
+      <div id="chat-input-area">
+        <div id="chat-input" contenteditable="true" class="chat-editable" data-placeholder="输入指令，Enter 发送..."></div>
+        <div class="chat-model-bar" id="model-bar">
+          <button class="model-btn" data-model="language" onclick="toggleModelPopup(this)">AI 语言</button>
+          <button class="model-btn" data-model="image" onclick="toggleModelPopup(this)">AI 作图</button>
+          <button class="model-btn" data-model="video" onclick="toggleModelPopup(this)">AI 视频</button>
+          <button id="chat-send" onclick="sendChat()" style="flex:0;padding:4px 12px;border-radius:16px;background:var(--accent);color:#fff;border:none;font-size:12px;cursor:pointer">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="zoom-control">
+  <button onclick="setZoom(state.zoom-0.1)">−</button>
+  <span id="zoom-label">100%</span>
+  <button onclick="setZoom(state.zoom+0.1)">+</button>
+  <button onclick="setZoom(1)" title="重置">⊙</button>
+</div>
+<div id="settings-gear" onclick="toggleSettings()">⚙</div>
+<div id="settings-modal" onclick="if(event.target===this)toggleSettings()">
+  <div class="modal-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">设置</h2>
+      <button onclick="toggleSettings()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text);padding:0 4px">✕</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" onclick="switchSettingsTab(this,'api-tab')">API 管理</button>
+      <button class="modal-tab" onclick="switchSettingsTab(this,'theme-tab')">主题设置</button>
+    </div>
+    <div class="modal-pane active" id="api-tab">
+      <div style="display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid var(--border)">
+        <button class="modal-tab active" onclick="switchApiChannel(this,'official')">官方接口</button>
+        <button class="modal-tab" onclick="switchApiChannel(this,'xais')">Xais 接口</button>
+        <button class="modal-tab" onclick="switchApiChannel(this,'cici')">CicI API</button>
+        <button class="modal-tab" onclick="switchApiChannel(this,'newai')">New AI</button>
+      </div>
+      <div id="api-official">
+        <div class="api-group">
+          <h3>🤖 AI 语言模型</h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: GPT-4o" id="language-official-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="sk-xxx" id="language-official-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.openai.com/v1" id="language-official-url"></div>
+          <div class="api-actions"><button onclick="saveApi('language','official')">保存</button><button onclick="clearApi('language','official')">清空</button></div>
+          <div class="model-display" id="language-official-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎨 AI 作图模型</h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: DALL-E 3" id="image-official-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="sk-xxx" id="image-official-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.openai.com/v1" id="image-official-url"></div>
+          <div class="api-actions"><button onclick="saveApi('image','official')">保存</button><button onclick="clearApi('image','official')">清空</button></div>
+          <div class="model-display" id="image-official-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎬 AI 视频模型</h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: Runway Gen-3" id="video-official-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="sk-xxx" id="video-official-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.runwayml.com/v1" id="video-official-url"></div>
+          <div class="api-actions"><button onclick="saveApi('video','official')">保存</button><button onclick="clearApi('video','official')">清空</button></div>
+          <div class="model-display" id="video-official-models"></div>
+        </div>
+      </div>
+      <div id="api-xais" style="display:none">
+        <div class="api-group">
+          <h3>🤖 AI 语言模型 <span style="font-size:11px;color:#888;font-weight:400">(Xais)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: Nano_Banana_Pro_2K_0" id="language-xais-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 Xais Bearer token" id="language-xais-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg2c.dchai.cn" id="language-xais-url"></div>
+          <div class="api-actions"><button onclick="saveApi('language','xais')">保存</button><button onclick="clearApi('language','xais')">清空</button></div>
+          <div class="model-display" id="language-xais-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎨 AI 作图模型 <span style="font-size:11px;color:#888;font-weight:400">(Xais)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: Nano_Banana_Pro_2K_0" id="image-xais-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 Xais Bearer token" id="image-xais-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg2c.dchai.cn" id="image-xais-url"></div>
+          <div class="api-actions"><button onclick="saveApi('image','xais')">保存</button><button onclick="clearApi('image','xais')">清空</button></div>
+          <div class="model-display" id="image-xais-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎬 AI 视频模型 <span style="font-size:11px;color:#888;font-weight:400">(Xais)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: seedance2_720P_15" id="video-xais-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 Xais Bearer token" id="video-xais-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg2c.dchai.cn" id="video-xais-url"></div>
+          <div class="api-actions"><button onclick="saveApi('video','xais')">保存</button><button onclick="clearApi('video','xais')">清空</button></div>
+          <div class="model-display" id="video-xais-models"></div>
+        </div>
+      </div>
+
+      <div id="api-newai" style="display:none">
+        <div class="api-group">
+          <h3>🤖 AI 语言模型 <span style="font-size:11px;color:#888;font-weight:400">(New AI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gpt-4o" id="language-newai-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 New AI API 密钥" id="language-newai-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.aicopy.top/v1" id="language-newai-url"></div>
+          <div class="api-actions"><button onclick="saveApi('language','newai')">保存</button><button onclick="clearApi('language','newai')">清空</button></div>
+          <div class="model-display" id="language-newai-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎨 AI 作图模型 <span style="font-size:11px;color:#888;font-weight:400">(New AI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gpt-image-2-2k全尺寸" id="image-newai-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 New AI API 密钥" id="image-newai-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.aicopy.top/v1" id="image-newai-url"></div>
+          <div class="api-actions"><button onclick="saveApi('image','newai')">保存</button><button onclick="clearApi('image','newai')">清空</button></div>
+          <div class="model-display" id="image-newai-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎬 AI 视频模型 <span style="font-size:11px;color:#888;font-weight:400">(New AI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: sora-2" id="video-newai-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 New AI API 密钥" id="video-newai-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.aicopy.top/v1" id="video-newai-url"></div>
+          <div class="api-actions"><button onclick="saveApi('video','newai')">保存</button><button onclick="clearApi('video','newai')">清空</button></div>
+          <div class="model-display" id="video-newai-models"></div>
+        </div>
+      </div>
+      </div>
+      <div id="api-cici" style="display:none">
+        <div class="api-group">
+          <h3>🤖 AI 语言模型 <span style="font-size:11px;color:#888;font-weight:400">(CicI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gemini-3.1-pro-high-anti" id="language-cici-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 CicI API 密钥" id="language-cici-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.ciciapi.com" id="language-cici-url"></div>
+          <div class="api-actions"><button onclick="saveApi('language','cici')">保存</button><button onclick="clearApi('language','cici')">清空</button></div>
+          <div class="model-display" id="language-cici-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎨 AI 作图模型 <span style="font-size:11px;color:#888;font-weight:400">(CicI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gemini-3.1-flash-image" id="image-cici-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 CicI API 密钥" id="image-cici-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.ciciapi.com" id="image-cici-url"></div>
+          <div class="api-actions"><button onclick="saveApi('image','cici')">保存</button><button onclick="clearApi('image','cici')">清空</button></div>
+          <div class="model-display" id="image-cici-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎬 AI 视频模型 <span style="font-size:11px;color:#888;font-weight:400">(CicI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gemini-3.1-flash-image" id="video-cici-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 CicI API 密钥" id="video-cici-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://api.ciciapi.com" id="video-cici-url"></div>
+          <div class="api-actions"><button onclick="saveApi('video','cici')">保存</button><button onclick="clearApi('video','cici')">清空</button></div>
+          <div class="model-display" id="video-cici-models"></div>
+        </div>
+      </div>
+
+      <div style="font-size:12px;color:#888">填写模型名称、API 密钥和接口 URL，按回车或点击保存。</div>
+    </div>
+    <div class="modal-pane" id="theme-tab">
+      <div class="theme-toggle">
+        <span style="font-size:13px">切换画面深浅：</span>
+        <button class="active" onclick="setTheme('light')" id="theme-light">☀ 白天模式</button>
+        <button onclick="setTheme('dark')" id="theme-dark">☾ 黑夜模式</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// ========== STATE ==========
+const state = {
+  items: [], // {id, type:'image'|'video', src, x, y, w, h, pins:[], rotation:0}
+  selectedId: null,
+  selectedIds: [], // multi-select
+  pan: {x:0, y:0},
+  zoom: 1,
+  nextId: 1,
+  dragging: null,
+  resizing: null,
+  isPanning: false,
+  panStart: null,
+  selectionBox: null,
+  drawing: false, // brush mode
+  erasing: false, // eraser mode
+  brushCtx: null,
+  brushCanvas: null,
+  brushItemId: null,
+  _isBrushing: false,
+  _didBrush: false,
+  _resizeOrigins: null,
+  _lastBrushX: undefined,
+  _lastBrushY: undefined,
+  chatHistory: [],
+  currentImageCursor: null,
+  currentPinCursor: null,
+  selectedModel: {language:null, image:null, video:null},
+  settings: {language:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, image:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, video:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, theme:'light'},
+  bottomLanguage: '中文',
+  bottomPlatform: '淘宝',
+  bottomMainCount: 1,
+  bottomDetailCount: 1,
+  bottomVideo: false,
+  bottomVideoType: '带货', // supports comma-separated: '带货,展示'
+  bottomVideoCount: 1,
+  bottomVideoDuration: 15,
+  bottomVideoResolution: '480p'
+};
+
+// ========== INIT ==========
+function init() {
+  loadState();
+  applyTheme(state.settings.theme);
+  renderBottomBar();
+  renderModelDisplays();
+  restoreCanvasItems();
+  validateSelectedModels();
+  setupCanvasEvents();
+  setupClipboard();
+  setupKeyboard();
+  setupChatInputEvents();
+  document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
+  addLog('系统初始化完成');
+  updateLogModelInfo();
+  // Restore cursor badges in chat input (only pin badge, not image badge)
+  if (state.currentPinCursor !== null) {
+    const pinId = state.currentImageCursor || (state.items.find(i => i.pins && i.pins.some(p => p.idx === state.currentPinCursor))?.id);
+    if (pinId) insertCursorBadge('pin', pinId, state.currentPinCursor);
+  }
+  _suppressPlatformLog = true;
+  onPlatformChange();
+  _suppressPlatformLog = false;
+}
+
+// ========== PERSISTENCE ==========
+function saveState() {
+  try {
+    const data = {settings:state.settings, items:state.items.map(i=>({id:i.id, type:i.type, src:i.src, x:i.x, y:i.y, w:i.w, h:i.h, pins:i.pins, zIndex:i.zIndex, rotation:i.rotation, analysis:i.analysis})), selectedModel:state.selectedModel, bottomLanguage:state.bottomLanguage, bottomPlatform:state.bottomPlatform, bottomMainCount:state.bottomMainCount, bottomDetailCount:state.bottomDetailCount, bottomVideoType:state.bottomVideoType, bottomVideoCount:state.bottomVideoCount, bottomVideoDuration:state.bottomVideoDuration, bottomVideoResolution:state.bottomVideoResolution, chatHistory:state.chatHistory, zoom:state.zoom, pan:state.pan, currentImageCursor:state.currentImageCursor, currentPinCursor:state.currentPinCursor};
+    const json = JSON.stringify(data);
+    if (json.length > 4 * 1024 * 1024) {
+      addLog('⚠️ 数据量过大（超过4MB），建议清除不用的图片');
+    }
+    localStorage.setItem('aiecom_state', json);
+  } catch(e) { console.warn('Save state error:', e); addLog('⚠️ 存储空间不足，部分数据可能未保存'); }
+}
+
+function setZoom(val) {
+  state.zoom = Math.min(5, Math.max(0.1, val));
+  document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
+  renderCanvas();
+  saveState();
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('aiecom_state');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.settings) {
+      state.settings = data.settings;
+      ['language','image','video'].forEach(t => {
+        if (!state.settings[t]) state.settings[t] = {};
+        ['official','xais','cici','newai'].forEach(ch => {
+          if (!state.settings[t][ch]) state.settings[t][ch] = {name:'',url:'',key:'',models:[]};
+          if (state.settings[t][ch].name === undefined) state.settings[t][ch].name = '';
+        });
+      });
+      delete state.settings.official;
+    }
+    if (data.items) {
+      state.items = data.items;
+      // Ensure pins have idx field (migration)
+      state.items.forEach(item => {
+        if (item.pins) {
+          item.pins.forEach((p, i) => { if (p.idx === undefined) p.idx = i + 1; });
+        }
+      });
+    }
+    if (data.nextId) state.nextId = data.nextId;
+    if (data.selectedModel) state.selectedModel = data.selectedModel;
+    if (data.bottomLanguage) state.bottomLanguage = data.bottomLanguage;
+    if (data.bottomPlatform) state.bottomPlatform = data.bottomPlatform;
+    if (data.bottomMainCount) state.bottomMainCount = data.bottomMainCount;
+    if (data.bottomDetailCount) state.bottomDetailCount = data.bottomDetailCount;
+    if (data.bottomVideoType) state.bottomVideoType = data.bottomVideoType;
+    if (data.bottomVideoCount) state.bottomVideoCount = data.bottomVideoCount;
+    if (data.bottomVideoDuration) state.bottomVideoDuration = data.bottomVideoDuration;
+    if (data.bottomVideoResolution) state.bottomVideoResolution = data.bottomVideoResolution;
+    if (data.chatHistory) state.chatHistory = data.chatHistory;
+    if (data.zoom) state.zoom = data.zoom;
+    if (data.pan) state.pan = data.pan;
+    if (data.currentImageCursor !== undefined && data.currentImageCursor !== null) state.currentImageCursor = data.currentImageCursor;
+    if (data.currentPinCursor !== undefined && data.currentPinCursor !== null) state.currentPinCursor = data.currentPinCursor;
+  } catch(e) {}
+}
+
+// ========== CANVAS RENDERING ==========
+function renderCanvas() {
+  const inner = document.getElementById('canvas-inner');
+  inner.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
+  // Clear and re-render items sorted by z-index
+  const existing = inner.querySelectorAll('.canvas-item');
+  const toRemove = [];
+  const toKeep = [];
+  for (const item of state.items) {
+    const el = document.getElementById(`item-${item.id}`);
+    if (el) toKeep.push(el.id);
+  }
+  for (const el of existing) {
+    if (!toKeep.includes(el.id)) el.remove();
+  }
+  // Render items in order
+  state.items.sort((a,b)=>(a.zIndex||0)-(b.zIndex||0));
+  const renderedIds = new Set();
+  for (const el of existing) {
+    const id = parseInt(el.id.replace('item-',''));
+    if (state.items.find(i=>i.id===id)) renderedIds.add(id);
+  }
+  for (const item of state.items) {
+    let el = document.getElementById(`item-${item.id}`);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'canvas-item';
+      el.id = `item-${item.id}`;
+      el.dataset.id = item.id;
+      if (item.type === 'video') {
+        const v = document.createElement('video');
+        v.src = item.src;
+        v.loop = true;
+        v.muted = true;
+        v.playsInline = true;
+        el.dataset.src = item.src;
+        el.appendChild(v);
+      } else {
+        const img = new Image();
+        img.referrerPolicy = 'no-referrer';
+        img.src = item.src;
+        img.draggable = false;
+        el.dataset.src = item.src;
+        el.appendChild(img);
+      }
+      const handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      el.appendChild(handle);
+      inner.appendChild(el);
+    } else {
+      const imgEl = el.querySelector('img');
+      if (imgEl && el.dataset.src !== item.src) { el.dataset.src = item.src; imgEl.src = item.src; }
+    }
+    const vidEl = el.querySelector('video');
+    if (vidEl && el.dataset.src !== item.src) { el.dataset.src = item.src; vidEl.src = item.src; }
+    updateItemPosition(item);
+    // Render pins
+    renderPins(item);
+    if (item.type === 'video') {
+      const v = el.querySelector('video');
+      if (v) { v.currentTime = 0; v.play().catch(()=>{}); }
+    }
+  }
+}
+
+function updateItemPosition(item) {
+  const el = document.getElementById(`item-${item.id}`);
+  if (!el) return;
+  el.style.left = item.x + 'px';
+  el.style.top = item.y + 'px';
+  el.style.width = item.w + 'px';
+  el.style.zIndex = item.zIndex || (state.items.indexOf(item) + 1);
+  const img = el.querySelector('img');
+  const vid = el.querySelector('video');
+  if (img) { img.style.width = item.w + 'px'; img.style.height = (item.h || item.w) + 'px'; }
+  if (vid) { vid.style.width = item.w + 'px'; vid.style.height = (item.h || item.w) + 'px'; }
+  // Selection highlight
+  const sel = state.selectedId === item.id || state.selectedIds.includes(item.id);
+  el.classList.toggle('selected', sel);
+}
+
+function renderPins(item) {
+  const el = document.getElementById(`item-${item.id}`);
+  if (!el) return;
+  el.querySelectorAll('.pin-dot').forEach(p=>p.remove());
+  if (item.pins) {
+    item.pins.forEach(pin => {
+      const dot = document.createElement('div');
+      dot.className = 'pin-dot';
+      dot.textContent = '📍';
+      dot.style.left = pin.rx * item.w + 'px';
+      dot.style.top = pin.ry * item.h + 'px';
+      el.appendChild(dot);
+    });
+  }
+}
+
+function restoreCanvasItems() {
+  renderCanvas();
+  // chat history is preserved for context but not displayed in logs on refresh
+}
+
+// ========== CANVAS ITEM CRUD ==========
+function getNextId() {
+  const used = new Set(state.items.map(i => i.id));
+  let id = 1;
+  while (used.has(id)) id++;
+  return id;
+}
+
+function addCanvasItem(type, src, x, y, w, h) {
+  saveUndoState();
+  const id = getNextId();
+  const item = {id, type, src, x, y, w, h: h || w, pins: [], zIndex: state.items.length + 1, rotation: 0};
+  state.items.push(item);
+  renderCanvas();
+  saveState();
+  addLog(`已添加${type==='video'?'视频':'图片'}到画布`);
+  deselectAll();
+  selectItem(id);
+  return id;
+}
+
+function removeCanvasItem(id) {
+  saveUndoState();
+  state.items = state.items.filter(i => i.id !== id);
+  if (state.selectedId === id) state.selectedId = null;
+  state.selectedIds = state.selectedIds.filter(sid => sid !== id);
+  const el = document.getElementById(`item-${id}`);
+  if (el) el.remove();
+  hideQuickToolbar();
+  // Remove cursor badges for this item from chat input
+  const input = document.getElementById('chat-input');
+  input.querySelectorAll('.cursor-badge-inline').forEach(b => {
+    if (parseInt(b.dataset.id) === id) b.remove();
+  });
+  if (!input.querySelectorAll('.cursor-badge-inline').length) {
+    state.currentImageCursor = null;
+    state.currentPinCursor = null;
+  }
+  saveState();
+  addLog('已删除素材');
+}
+
+function clearAllData() {
+  if (confirm('确定要清除所有数据吗？这将删除所有上传的图片和设置。')) {
+    localStorage.removeItem('aiecom_state');
+    location.reload();
+  }
+}
+
+function selectItem(id, skipCursor) {
+  deselectAll();
+  state.selectedId = id;
+  const item = state.items.find(i => i.id === id);
+  if (item) {
+    state.currentImageCursor = id;
+    renderCanvas();
+    showQuickToolbar(id);
+    if (!skipCursor && !hasCursorBadge('image', id)) {
+      insertCursorBadge('image', id);
+    }
+    // Show stored analysis if available
+    if (item.analysis) {
+      showAnalysisOnPanel(item.analysis);
+    } else {
+      showAnalysisOnPanel(null);
+    }
+  }
+}
+
+function deselectAll() {
+  state.selectedId = null;
+  state.selectedIds = [];
+  renderCanvas();
+}
+
+// ========== QUICK TOOLBAR ==========
+let toolbarState = {showBrush:false, showEraser:false, showWatermark:false, showTranslate:false};
+
+function showQuickToolbar(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  const toolbar = document.getElementById('quick-toolbar');
+  const el = document.getElementById(`item-${id}`);
+  if (!el) return;
+
+  toolbar.innerHTML = '';
+  toolbar.className = 'show';
+  toolbar.dataset.itemId = id;
+  // Position above the image
+  const rect = el.getBoundingClientRect();
+  const canvasRect = document.getElementById('canvas-area').getBoundingClientRect();
+  toolbar.style.left = (rect.left - canvasRect.left + rect.width/2) + 'px';
+  toolbar.style.top = Math.max(4, (rect.top - canvasRect.top - 40)) + 'px';
+
+  const btns = [
+    {text:'AI去水印', action:()=>toggleDropdown('watermark-dropdown', id)},
+    {text:'AI翻译', action:()=>toggleDropdown('translate-dropdown', id)},
+    {text:'画笔', action:()=>toggleBrush(id)},
+    {text:'橡皮擦', action:()=>toggleEraser(id)},
+    {text:'变清晰', action:()=>aiEnhance(id)},
+    {text:'AI分析', action:()=>aiAnalyze(id)},
+    {text:'AI白底', action:()=>aiWhiteBg(id)},
+    {text:'下载', action:()=>downloadItem(id)},
+    {text:'删除', action:()=>{removeCanvasItem(id);hideQuickToolbar()}}
+  ];
+  btns.forEach((b, i) => {
+    const btn = document.createElement('button');
+    btn.textContent = b.text;
+    btn.onclick = b.action;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;display:inline-flex';
+    wrap.appendChild(btn);
+    if (i === 0) wrap.appendChild(createWatermarkDropdown(id));
+    else if (i === 1) wrap.appendChild(createTranslateDropdown(id));
+    else if (i === 2) wrap.appendChild(createBrushDropdown(id));
+    else if (i === 3) wrap.appendChild(createEraserDropdown(id));
+    toolbar.appendChild(wrap);
+  });
+  // Size inputs
+  const wInput = document.createElement('input');
+  wInput.type = 'number';
+  wInput.value = Math.round(item.w);
+  wInput.style.width = '55px';
+   wInput.onchange = wInput.oninput = function() {
+    const item2 = state.items.find(i=>i.id===id);
+    if (!item2) return;
+    const ratio = item2.h / item2.w;
+    item2.w = parseFloat(this.value) || 100;
+    if (lockRatio) { item2.h = item2.w * ratio; hInput.value = Math.round(item2.h); }
+    updateItemPosition(item2);
+    saveState();
+  };
+  const lockBtn = document.createElement('button');
+  let lockRatio = true;
+  lockBtn.textContent = '🔗';
+  lockBtn.className = 'lock-btn active';
+  lockBtn.onclick = function() { lockRatio = !lockRatio; lockBtn.classList.toggle('active'); lockBtn.textContent = '🔗'; };
+  toolbar.appendChild(wInput);
+  toolbar.appendChild(lockBtn);
+  const hInput = document.createElement('input');
+  hInput.type = 'number';
+  hInput.value = Math.round(item.h);
+  hInput.style.width = '55px';
+  hInput.onchange = hInput.oninput = function() {
+    const item2 = state.items.find(i=>i.id===id);
+    if (!item2) return;
+    const ratio = item2.w / item2.h;
+    item2.h = parseFloat(this.value) || 100;
+    if (lockRatio) { item2.w = item2.h * ratio; wInput.value = Math.round(item2.w); }
+    updateItemPosition(item2);
+    saveState();
+  };
+  toolbar.appendChild(hInput);
+}
+
+function hideQuickToolbar() {
+  document.getElementById('quick-toolbar').className = '';
+  document.getElementById('quick-toolbar').innerHTML = '';
+}
+
+function toggleDropdown(name, id) {
+  const existing = document.getElementById(name);
+  if (!existing) return;
+  const show = !existing.classList.contains('show');
+  document.querySelectorAll('.tool-dropdown').forEach(d => d.classList.remove('show'));
+  if (show) {
+    // Try above first; if not enough room, show below
+    const btnWrap = existing.parentElement;
+    if (btnWrap) {
+      const rect = btnWrap.getBoundingClientRect();
+      const spaceAbove = rect.top;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      existing.classList.remove('above', 'below');
+      existing.classList.add(spaceAbove >= 200 ? 'above' : 'below');
+    }
+    existing.classList.add('show');
+    // Clear watermark input when opening
+    const wmInput = existing.querySelector('#wm-text, #wm-text-multi');
+    if (wmInput) wmInput.value = '';
+  }
+}
+
+// ========== WATERMARK DROPDOWN ==========
+function createWatermarkDropdown(id) {
+  const div = document.createElement('div');
+  div.className = 'tool-dropdown';
+  div.id = 'watermark-dropdown';
+  div.innerHTML = `
+    <label>水印文字</label>
+    <input type="text" id="wm-text" placeholder="输入水印文字" autocomplete="off">
+    <div class="dropdown-actions">
+      <button onclick="executeWatermark(${id})">执行</button>
+    </div>
+  `;
+  return div;
+}
+
+function executeWatermark(id) {
+  const text = document.getElementById('wm-text')?.value.trim();
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  document.getElementById('watermark-dropdown').classList.remove('show');
+  addLog(`AI 作图模型 [${getModelDisplay('image')}] 去水印处理中...`);
+  resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const wmText = text || '水印';
+    const prompt = `去除图片中的"${wmText}"印记。保持图片的产品、背景、颜色、文字、布局等其他所有内容完全不变，只移除水印标记。返回处理后的图片。`;
+    const sysPrompt = '你是电商图片处理专家。只去除指定水印，不修改图片其他任何内容。';
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          fetchImageAndAdd(urlMatch[0], item, '✅ AI去水印完成');
+          return;
+        }
+        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+        if (mdMatch) {
+          fetchImageAndAdd(mdMatch[1], item, '✅ AI去水印完成');
+          return;
+        }
+      }
+      addLog('AI去水印失败: API未返回图片');
+    }).catch((e) => { addLog('AI去水印失败: '+e.message); });
+  });
+}
+
+// ========== TRANSLATE DROPDOWN ==========
+const languages = ['中文','英语','日语','韩语','法语','德语','西班牙语','葡萄牙语','俄语','阿拉伯语','意大利语','荷兰语','泰语','越南语','印尼语','马来语','土耳其语','印地语','孟加拉语','菲律宾语'];
+
+function createTranslateDropdown(id) {
+  const div = document.createElement('div');
+  div.className = 'tool-dropdown';
+  div.id = 'translate-dropdown';
+  let opts = languages.map(l => `<option value="${l}">${l}</option>`).join('');
+  div.innerHTML = `
+    <label>选择目标语言</label>
+    <select id="translate-lang">${opts}</select>
+    <div class="dropdown-actions">
+      <button onclick="executeTranslate(${id})">翻译</button>
+    </div>
+  `;
+  return div;
+}
+
+function executeWatermarkMulti(id) {
+  const text = document.getElementById('wm-text-multi')?.value.trim();
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  document.getElementById('watermark-dropdown-multi')?.classList.remove('show');
+  addLog(`AI 作图模型 [${getModelDisplay('image')}] 去水印处理中...`);
+  resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const wmText = text || '水印';
+    const prompt = `去除图片中的"${wmText}"印记。保持图片的产品、背景、颜色、文字、布局等其他所有内容完全不变，只移除水印标记。返回处理后的图片。`;
+    const sysPrompt = '你是电商图片处理专家。只去除指定水印，不修改图片其他任何内容。';
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          fetchImageAndAdd(urlMatch[0], item, '✅ AI去水印完成');
+          return;
+        }
+        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+        if (mdMatch) {
+          fetchImageAndAdd(mdMatch[1], item, '✅ AI去水印完成');
+          return;
+        }
+      }
+      addLog('AI去水印失败: API未返回图片');
+    }).catch((e) => { addLog('AI去水印失败: '+e.message); });
+  });
+}
+
+function resizeForAPI(src, maxSize) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = function() {
+      let w = img.width, h = img.height;
+      if (w > maxSize || h > maxSize) {
+        const ratio = Math.min(maxSize / w, maxSize / h);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+function executeTranslateMulti(id) {
+  const lang = document.getElementById('translate-lang-multi')?.value || '英语';
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
+  document.getElementById('translate-dropdown-multi')?.classList.remove('show');
+  resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。返回翻译后的图片。`;
+    const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
+          return;
+        }
+        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+        if (mdMatch) {
+          fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
+          return;
+        }
+      }
+      addLog('AI翻译失败: API未返回图片');
+    }).catch((e) => { addLog('AI翻译失败: '+e.message); });
+  });
+}
+
+function executeTranslate(id) {
+  const lang = document.getElementById('translate-lang').value;
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
+  document.getElementById('translate-dropdown').classList.remove('show');
+  resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。返回翻译后的图片。`;
+    const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
+          return;
+        }
+        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+        if (mdMatch) {
+          fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
+          return;
+        }
+      }
+      addLog('AI翻译失败: API未返回图片');
+    }).catch((e) => { addLog('AI翻译失败: '+e.message); });
+  });
+}
+
+// ========== BRUSH TOOL ==========
+function toggleBrush(id) {
+  if (state.drawing && state.brushItemId === id) {
+    exitBrush();
+    document.querySelectorAll('.brush-dropdown, .eraser-dropdown').forEach(d => d.classList.remove('show'));
+    return;
+  }
+  exitBrush();
+  exitEraser();
+  state.drawing = true;
+  state.brushItemId = id;
+  document.getElementById('canvas-container').className = 'drawing-mode';
+  addLog('画笔工具已开启');
+  toggleDropdown('brush-dropdown', id);
+}
+
+function createBrushDropdown(id) {
+  const div = document.createElement('div');
+  div.className = 'tool-dropdown brush-dropdown';
+  div.id = 'brush-dropdown';
+  div.innerHTML = `
+    <label>大小</label>
+    <input type="range" min="1" max="50" value="5" id="brush-size" style="width:100%">
+    <label>颜色</label>
+    <input type="color" value="#ff0000" id="brush-color" style="width:100%;height:30px;padding:2px;border:none">
+    <div class="dropdown-actions">
+      <button onclick="pickColor()">取色</button>
+      <button onclick="saveBrush(${id})" style="background:var(--accent);color:#fff">保存</button>
+    </div>
+  `;
+  return div;
+}
+
+function exitBrush() {
+  state.drawing = false;
+  state.brushItemId = null;
+  document.getElementById('canvas-container').className = '';
+  if (state.brushCanvas) {
+    state.brushCanvas.remove();
+    state.brushCanvas = null;
+    state.brushCtx = null;
+  }
+}
+
+function exitEraser() {
+  state.erasing = false;
+  document.getElementById('canvas-container').className = '';
+  if (state.brushCanvas) {
+    state.brushCanvas.remove();
+    state.brushCanvas = null;
+    state.brushCtx = null;
+  }
+}
+
+function pickColor() {
+  if (!window.EyeDropper) { addLog('当前浏览器不支持取色功能'); return; }
+  const ed = new EyeDropper();
+  ed.open().then(r => {
+    document.getElementById('brush-color').value = r.sRGBHex;
+  }).catch(()=>{});
+}
+
+function compositeBrushToItem(item) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = function() {
+      if (img.width === 0 || img.height === 0) {
+        resolve(item.src);
+        return;
+      }
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      const sx = img.width / item.w;
+      const sy = img.height / item.h;
+      ctx.drawImage(img, 0, 0);
+      if (state.brushCanvas) {
+        if (state.drawing) {
+          // Brush: draw strokes on top
+          ctx.save();
+          ctx.scale(sx, sy);
+          ctx.drawImage(state.brushCanvas, 0, 0);
+          ctx.restore();
+        } else if (state.erasing) {
+          // Eraser: use white strokes as mask to erase
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = c.width;
+          maskCanvas.height = c.height;
+          const mctx = maskCanvas.getContext('2d');
+          mctx.scale(sx, sy);
+          mctx.drawImage(state.brushCanvas, 0, 0);
+          // Apply mask: make white areas transparent
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.drawImage(maskCanvas, 0, 0);
+          ctx.globalCompositeOperation = 'source-over';
+        }
+      }
+      resolve(c.toDataURL('image/png'));
+    };
+    img.src = item.src;
+  });
+}
+
+function saveBrush(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  compositeBrushToItem(item).then(dataUrl => {
+    item.src = dataUrl;
+    renderCanvas();
+    saveState();
+    addLog('画笔已保存到图片');
+    exitBrush();
+  });
+}
+
+function saveEraser(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  compositeBrushToItem(item).then(dataUrl => {
+    item.src = dataUrl;
+    renderCanvas();
+    saveState();
+    addLog('橡皮擦已保存到图片');
+    exitEraser();
+  });
+}
+
+// ========== ERASER TOOL ==========
+function toggleEraser(id) {
+  if (state.erasing && state.brushItemId === id) {
+    exitEraser();
+    document.querySelectorAll('.brush-dropdown, .eraser-dropdown').forEach(d => d.classList.remove('show'));
+    return;
+  }
+  exitBrush();
+  exitEraser();
+  state.erasing = true;
+  state.brushItemId = id;
+  document.getElementById('canvas-container').className = 'erasing-mode';
+  addLog('橡皮擦工具已开启');
+  toggleDropdown('eraser-dropdown', id);
+}
+
+function createEraserDropdown(id) {
+  const div = document.createElement('div');
+  div.className = 'tool-dropdown eraser-dropdown';
+  div.id = 'eraser-dropdown';
+  div.innerHTML = `
+    <label>大小</label>
+    <input type="range" min="1" max="100" value="20" id="eraser-size" style="width:100%">
+    <label>透明度</label>
+    <input type="range" min="0" max="100" value="100" id="eraser-opacity" style="width:100%">
+    <div class="dropdown-actions">
+      <button onclick="saveEraser(${id})" style="background:var(--accent);color:#fff">保存</button>
+    </div>
+  `;
+  return div;
+}
+
+// ========== AI FUNCTIONS ==========
+function aiEnhance(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  const modelName = getModelDisplay('image');
+  addLog(`AI 作图模型 [${modelName}] 变清晰处理中...`);
+  setTimeout(() => {
+    // Simulate sharpen by re-adding image with slightly higher res
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const scale = 1.5;
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/png');
+      const newId = addCanvasItem('image', dataUrl, item.x + 20, item.y + 20, item.w, item.h);
+      addLog('AI 变清晰完成，已生成更高清版本');
+    };
+    img.src = item.src;
+  }, 2000);
+}
+
+function getModelDisplay(type) {
+  const sel = state.selectedModel[type];
+  if (sel) return sel;
+  const s = state.settings[type];
+  const models = [...(s?.official?.models||[]), ...(s?.xais?.models||[]), ...(s?.cici?.models||[]), ...(s?.newai?.models||[])];
+  return models[0] || '未配置';
+}
+
+function getActiveApiConfig(type) {
+  const modelName = state.selectedModel[type];
+  if (!modelName) return null;
+  for (const channel of ['official', 'xais', 'cici', 'newai']) {
+    const models = state.settings[type]?.[channel]?.models || [];
+    if (models.includes(modelName)) {
+      const url = state.settings[type][channel].url;
+      const key = state.settings[type][channel].key;
+      if (!url || !key) return null;
+      return { url, key, model: modelName };
+    }
+  }
+  return null;
+}
+
+const BASE_URL = 'https://aizuotu.onrender.com';
+const PROXY_URL = BASE_URL + '/api/proxy';
+
+async function checkProxy() {
+  try {
+    const res = await fetch(BASE_URL + '/api/health');
+    return res.ok;
+  } catch { return false; }
+}
+
+async function callAI(type, systemPrompt, userContent, maxTok) {
+  const config = getActiveApiConfig(type);
+  if (!config) return 'NO_CONFIG';
+  for (let retry = 0; retry < 3; retry++) {
+    try {
+      const body = {url: config.url, apiKey: config.key, model: config.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }], maxTokens: maxTok || 1024};
+      const res = await fetch(PROXY_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (res.status === 429) {
+        const wait = (retry + 1) * 2000;
+        addLog(`⚠️ API 限流(429)，${wait/1000}秒后重试(${retry+1}/3)...`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const detail = (err.detail || '').toLowerCase();
+        if (detail.includes('image')) return 'NO_IMAGE_SUPPORT';
+        const errMsg = typeof err.error === 'string' ? err.error : (err.error?.message || err.message || res.statusText || '');
+        addLog(`⚠️ API 错误 (${res.status}): ${errMsg.substring(0,100)}`);
+        return null;
+      }
+      const data = await res.json();
+      const msg = data.choices?.[0]?.message;
+      let content = msg?.content;
+      if (Array.isArray(content)) content = content.map(c => c.text || c.content || '').filter(Boolean).join('\n');
+      if (content && typeof content === 'string') return content;
+      const raw = JSON.stringify(data);
+      addLog('⚠️ RAW: ' + raw.substring(0, 600));
+      return null;
+    } catch (e) {
+      addLog(`⚠️ 代理请求失败: ${e.message}。请确认后端代理服务器已启动 (node server.js)`);
+      return 'PROXY_ERROR';
+    }
+  }
+  return null;
+}
+
+function parseAnalysisResponse(reply) {
+  // Try JSON first
+  try {
+    const j = JSON.parse(reply);
+    if (j.product || j.产品) return j;
+  } catch(e) {}
+  // Try extracting JSON from markdown ```json ... ```
+  const m = reply.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (m) try { return JSON.parse(m[1]); } catch(e) {}
+  // Try to find fields in natural language
+  const fields = {};
+  const patterns = [
+    ['product', /产品[名称标识]?[：:]\s*(.+)/],
+    ['function', /功能[作用]?[：:]\s*(.+)/],
+    ['selling', /(?:卖点|核心卖点)[：:]\s*(.+)/],
+    ['pain', /(?:痛点|客户痛点)[：:]\s*(.+)/]
+  ];
+  patterns.forEach(([key, re]) => {
+    const match = reply.match(re);
+    if (match) fields[key] = match[1].trim();
+  });
+  if (fields.product) return fields;
+  return null;
+}
+
+function applyAnalysis(j, modelName, id) {
+  const item = state.items.find(i => i.id === id || i.id === state.selectedId || i.id === state.currentImageCursor);
+  if (item) {
+    item.analysis = {
+      product: j.product || j.产品 || j.名称 || j.name || '未识别',
+      function: j.function || j.func || j.功能 || j.作用 || '未识别',
+      selling: j.selling || j.卖点 || j.sell || '未识别',
+      pain: j.pain || j.痛点 || j.painPoint || '未识别'
+    };
+    saveState();
+  }
+  showAnalysisOnPanel(item ? item.analysis : j);
+  addLog(`✅ AI 语言模型 [${modelName}] 分析完成`);
+}
+
+function showAnalysisOnPanel(a) {
+  const el = id => document.getElementById(id);
+  if (!a) {
+    el('analysis-product').textContent = '点击图片后使用 AI 分析';
+    el('analysis-function').textContent = '-';
+    el('analysis-selling').textContent = '-';
+    el('analysis-pain').textContent = '-';
+    return;
+  }
+  el('analysis-product').textContent = a.product || '未识别';
+  el('analysis-function').textContent = a.function || '未识别';
+  el('analysis-selling').textContent = a.selling || '未识别';
+  el('analysis-pain').textContent = a.pain || '未识别';
+}
+
+function aiAnalyze(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  const modelName = getModelDisplay('language');
+  addLog(`AI 语言模型 [${modelName}] 分析中...`);
+  addLog('正在分析产品卖点和痛点...');
+  checkProxy().then(up => {
+    if (!up) { addLog('⚠️ 后端代理未启动，请先双击「启动服务.bat」'); fallbackAnalysis(); return; }
+    const systemPrompt = '你是一个电商产品分析师。只返回JSON。产品名称不含品牌，用通用名称。{"product":"产品通用名称(不含品牌)","function":"产品功能作用","selling":"核心卖点（含赠品）","pain":"客户痛点"}';
+    const img = new Image();
+    img.onload = function() {
+      const c = document.createElement('canvas');
+      c.width = Math.min(img.width, 128);
+      c.height = Math.min(img.height, 128);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
+      const userContent = [
+        {type:'text', text:'分析图中产品，只返回JSON'},
+        {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
+      ];
+      const analysisId = id;
+      callAI('language', systemPrompt, userContent).then(reply => {
+        if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+          const j = parseAnalysisResponse(reply);
+          if (j) { applyAnalysis(j, modelName, analysisId); return; }
+        }
+        if (reply === 'NO_IMAGE_SUPPORT') addLog('⚠️ 该模型不支持图片输入，改为纯文字分析...');
+        else addLog('尝试文字分析...');
+        const textContent = [{type:'text', text:'分析产品图，只返回JSON格式'}];
+        callAI('language', systemPrompt, textContent).then(reply2 => {
+          if (reply2 && !['NO_CONFIG','PROXY_ERROR'].includes(reply2)) {
+            const j = parseAnalysisResponse(reply2);
+            if (j) { applyAnalysis(j, modelName, analysisId); return; }
+          }
+          fallbackAnalysis();
+        });
+      }).catch(() => fallbackAnalysis());
+    };
+    img.onerror = () => fallbackAnalysis();
+    img.src = item.src;
+  });
+}
+
+function fallbackAnalysis() {
+  addLog('⚠️ API 调用失败，请确认：1.已双击「启动服务.bat」2.已选择模型 3.API密钥正确');
+  const j = {product:'智能蓝牙耳机', function:'无线降噪、高清通话、长续航 48 小时', selling:'主动降噪技术、IPX7 防水、触控操作、快速充电、赠品：硅胶保护套 + Type-C 充电线', pain:'嘈杂环境下通话不清晰、续航焦虑、运动时耳机易脱落、充电接口不统一'};
+  showAnalysisOnPanel(j);
+  const item = state.items.find(i => i.id === state.selectedId || i.id === state.currentImageCursor);
+  if (item) { item.analysis = j; saveState(); }
+}
+
+function aiWhiteBg(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  const modelName = getModelDisplay('image');
+  addLog(`AI 作图模型 [${modelName}] 白底处理中...`);
+  // Try API call first
+  const img = new Image();
+  img.onload = function() {
+    const c = document.createElement('canvas');
+    c.width = Math.min(img.width, 256);
+    c.height = Math.min(img.height, 256);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL('image/jpeg', 0.7).split(',')[1];
+    const prompt = '【参考图中的产品主体绝对不变】去除所有背景、场景、装饰物、文字、阴影、倒影。背景替换为纯白色(#ffffff)。参考图中的产品就是需要保留的主体，禁止修改产品本身的颜色、形状、材质。只返回生成的图片。';
+    const sysPrompt = '你是电商图片处理专家。参考图中的产品主体必须完全保留，只更换背景为纯白色。';
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+        if (urlMatch) {
+          fetchImageAndAdd(urlMatch[0], item, 'AI 白底图已生成');
+          return;
+        }
+        const mdMatch = reply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
+        if (mdMatch) {
+          fetchImageAndAdd(mdMatch[1], item, 'AI 白底图已生成');
+          return;
+        }
+      }
+      addLog('白底图生成失败: API未返回图片链接');
+    }).catch((e) => { addLog('白底图生成失败: '+e.message); });
+  };
+  img.onerror = () => fallbackWhiteBg(item);
+  img.src = item.src;
+}
+
+function limitImgSize(src, maxDim) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = function() {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > maxDim || h > maxDim) { const ratio = Math.min(maxDim / w, maxDim / h); w = Math.round(w * ratio); h = Math.round(h * ratio); }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+async function genImgDirect(prompt, refItem) {
+  const cfg = getActiveApiConfig('image');
+  if (!cfg) return null;
+  const a = refItem?.analysis;
+  const refDesc = a ? `产品名称：${a.product||''}。功能作用：${a.function||''}。核心卖点：${a.selling||''}。客户痛点：${a.pain||''}。` : '';
+  const fullPrompt = `${prompt}。${refDesc}重要：必须严格保持与描述中的产品外观完全一致。`;
+  try {
+    const res = await fetch(BASE_URL + '/api/proxy-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: fullPrompt, n: 1, size: '1024x1024' })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const item = data.data?.[0];
+    if (item?.b64_json) return 'data:image/png;base64,' + item.b64_json;
+    if (item?.url) return item.url;
+  } catch(e) {}
+  return null;
+}
+
+function fetchImageAndAdd(imgUrl, srcItem, logMsg, optX, optY, optW, optH) {
+  const x = optX !== undefined ? optX : (srcItem ? srcItem.x + 30 : 100);
+  const y = optY !== undefined ? optY : (srcItem ? srcItem.y + 30 : 100);
+  const w = optW || (srcItem ? srcItem.w : 180);
+  const h = optH || (srcItem ? srcItem.h : 180);
+  if (imgUrl.startsWith('data:')) { limitImgSize(imgUrl, 1920).then(s => { addCanvasItem('image', s, x, y, w, h); addLog(logMsg); }); return; }
+  const keyMatch = imgUrl.match(/\/d5\/[^?]+/);
+  const finalUrl = (keyMatch && imgUrl.includes('aliyuncs.com')) ? 'https://svt1.dchai.cn/xais/img' + keyMatch[0] : imgUrl;
+  fetch(BASE_URL + '/api/image-proxy?url=' + encodeURIComponent(finalUrl)).then(r => {
+    if (!r.ok) return Promise.reject(new Error('proxy ' + r.status));
+    return r.blob();
+  }).then(blob => {
+    const reader = new FileReader();
+    reader.onload = function() { limitImgSize(reader.result, 1920).then(resizedSrc => { addCanvasItem('image', resizedSrc, x, y, w, h); addLog(logMsg); }); };
+    reader.readAsDataURL(blob);
+  }).catch(e => { addLog('下载失败: ' + e.message); addCanvasItem('image', imgUrl, x, y, w, h); addLog(logMsg); });
+}
+
+async function uploadImageToHost(b64) {
+  try {
+    const res = await fetch(BASE_URL + '/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: Uint8Array.from(atob(b64.split(',')[1] || b64), c => c.charCodeAt(0))
+    });
+    const data = await res.json();
+    return data.url || null;
+  } catch(e) { return null; }
+}
+
+function fallbackWhiteBg(item) {
+  addLog('白底图生成失败');
+}
+
+function downloadItem(id) {
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  if (item.type === 'video') {
+    const a = document.createElement('a');
+    a.href = item.src;
+    a.download = `video_${id}.mp4`;
+    a.click();
+    addLog('已下载素材');
+    return;
+  }
+  const img = new Image();
+  img.onload = function() {
+    const c = document.createElement('canvas');
+    c.width = Math.round(item.w);
+    c.height = Math.round(item.h);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = `image_${id}.png`;
+    a.click();
+    addLog('已下载素材');
+  };
+  img.onerror = function() {
+    const a = document.createElement('a');
+    a.href = item.src;
+    a.download = `image_${id}.png`;
+    a.click();
+    addLog('已下载素材');
+  };
+  img.src = item.src;
+}
+
+// ========== PIN SYSTEM ==========
+function getNextPinIdx(item) {
+  if (!item.pins || item.pins.length === 0) return 1;
+  const used = new Set();
+  item.pins.forEach(p => { if (p.idx !== undefined) used.add(p.idx); });
+  let idx = 1;
+  while (used.has(idx)) idx++;
+  return idx;
+}
+
+function addPin(itemId, rx, ry) {
+  const item = state.items.find(i => i.id === itemId);
+  if (!item) return;
+  if (!item.pins) item.pins = [];
+  const pinIdx = getNextPinIdx(item);
+  item.pins.push({rx, ry, idx: pinIdx});
+  selectItem(itemId, true);
+  renderPins(item);
+  state.currentPinCursor = pinIdx;
+  insertCursorBadge('pin', itemId, pinIdx);
+  saveState();
+}
+
+// ========== CHAT ==========
+function hasCursorBadge(type, id, pinIdx) {
+  const input = document.getElementById('chat-input');
+  const badges = input.querySelectorAll('.cursor-badge-inline');
+  for (const b of badges) {
+    if (b.dataset.type === type && parseInt(b.dataset.id) === id) {
+      if (pinIdx === undefined) return true;
+      if (parseInt(b.dataset.pinIdx) === pinIdx) return true;
+    }
+  }
+  return false;
+}
+
+function insertCursorBadge(type, id, pinIdx) {
+  const input = document.getElementById('chat-input');
+  const span = document.createElement('span');
+  span.className = 'cursor-badge-inline';
+  span.contentEditable = 'false';
+  span.dataset.type = type;
+  span.dataset.id = id;
+  if (type === 'pin') span.dataset.pinIdx = pinIdx;
+  const label = type === 'image' ? `🖼 图片 ${id}` : `📍 定位 ${pinIdx}`;
+  span.innerHTML = `${label} <span class="remove-cursor" contenteditable="false" onclick="removeInlineCursor(this)">✕</span>`;
+  // Insert at cursor position or at end
+  const sel = window.getSelection();
+  let inserted = false;
+  if (sel && sel.rangeCount > 0 && input.contains(sel.anchorNode)) {
+    const range = sel.getRangeAt(0);
+    range.insertNode(span);
+    // Move cursor after the badge
+    range.setStartAfter(span);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    inserted = true;
+  }
+  if (!inserted) {
+    input.appendChild(span);
+    input.appendChild(document.createTextNode(' '));
+  }
+  input.focus();
+}
+
+function removeInlineCursor(el) {
+  const span = el.closest('.cursor-badge-inline');
+  if (!span) return;
+  const type = span.dataset.type;
+  const id = parseInt(span.dataset.id);
+  const pinIdx = span.dataset.pinIdx !== undefined ? parseInt(span.dataset.pinIdx) : null;
+  if (type === 'image') {
+    state.currentImageCursor = null;
+  } else if (type === 'pin') {
+    if (pinIdx !== null) {
+      removePinFromState(id, pinIdx);
+    }
+    state.currentPinCursor = null;
+  }
+  span.remove();
+  // Also clear state if no more badges
+  const remaining = document.querySelectorAll('.cursor-badge-inline');
+  if (remaining.length === 0) {
+    state.currentImageCursor = null;
+    state.currentPinCursor = null;
+  }
+  saveState();
+}
+
+function removePinFromState(itemId, pinIdx) {
+  saveUndoState();
+  const item = state.items.find(i => i.id === itemId);
+  if (item && item.pins) {
+    const index = item.pins.findIndex(p => p.idx === pinIdx);
+    if (index !== -1) {
+      item.pins.splice(index, 1);
+      renderPins(item);
+      saveState();
+    }
+  }
+}
+
+function getCursorStateFromInput() {
+  const input = document.getElementById('chat-input');
+  const badges = input.querySelectorAll('.cursor-badge-inline');
+  let imgId = null;
+  let pinIdx = null;
+  badges.forEach(b => {
+    if (b.dataset.type === 'image' || (b.dataset.type === 'pin' && imgId === null)) imgId = parseInt(b.dataset.id);
+    if (b.dataset.type === 'pin') pinIdx = parseInt(b.dataset.pinIdx);
+  });
+  return {imgId, pinIdx};
+}
+
+function getTextFromInput() {
+  const input = document.getElementById('chat-input');
+  let text = '';
+  for (const node of input.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (node.classList && node.classList.contains('cursor-badge-inline')) {
+      // skip badges
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      text += node.textContent || '';
+    }
+  }
+  return text.trim();
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const cursor = getCursorStateFromInput();
+  const text = getTextFromInput();
+  if (!text) return;
+  let context = '';
+  if (cursor.imgId) {
+    context += `[图片 ${cursor.imgId}] `;
+    state.currentImageCursor = cursor.imgId;
+  }
+  if (cursor.pinIdx !== null) {
+    context += `[定位 ${cursor.imgId}:${cursor.pinIdx}] `;
+    state.currentPinCursor = cursor.pinIdx;
+  }
+  const fullText = context + text;
+  addChatMessage('user', fullText);
+  state.chatHistory.push({role:'user', text:fullText});
+  // Clear text only, keep cursor badges
+  Array.from(input.childNodes).forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE || (node.classList && !node.classList.contains('cursor-badge-inline'))) {
+      node.remove();
+    }
+  });
+  // Process with AI
+  addLog('AI 语言模型处理中...');
+  const keywordResponse = simulateAIResponse(fullText);
+  if (keywordResponse && !keywordResponse.startsWith('已收到指令')) {
+    addChatMessage('assistant', keywordResponse);
+    state.chatHistory.push({role:'assistant', text:keywordResponse});
+    addLog('AI 响应完成');
+    saveState();
+    return;
+  }
+  const sysPrompt = '你是AI电商助手。用户发送消息时已经附带了参考图片（在消息末尾），请直接根据图片和用户指令处理，不要询问"请上传图片"或"请提供图片"。如果用户有定位标记，则表示只修改该区域。';
+  let chatMsg = text;
+  if (cursor.imgId) {
+    let pinInfo = '';
+    if (cursor.pinIdx !== null) {
+      const imgItem = state.items.find(i => i.id === cursor.imgId);
+      if (imgItem && imgItem.pins) {
+        const pin = imgItem.pins.find(p => p.idx === cursor.pinIdx);
+        if (pin) pinInfo = `（我已在图片上的坐标比例${pin.rx.toFixed(2)},${pin.ry.toFixed(2)}位置打了标记，请在这个位置处理）`;
+      }
+    }
+    chatMsg = `${text}${pinInfo}`;
+  }
+  const userContent = [{type:'text', text: chatMsg}];
+  if (cursor.imgId) {
+    const imgItem = state.items.find(i => i.id === cursor.imgId);
+    if (imgItem) userContent.push({type:'image_url', image_url:{url: imgItem.src, detail:'high'}});
+  }
+  callAI('language', sysPrompt, userContent, 2048).then(reply => {
+    const response = reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply) ? reply : keywordResponse;
+    addChatMessage('assistant', response);
+    state.chatHistory.push({role:'assistant', text:response});
+    addLog('AI 响应完成');
+    saveState();
+  });
+  // If there's a cursor image with pin and editing request, crop around pin and edit locally
+  if (cursor.imgId && cursor.pinIdx !== null && /去除|删除|移除|去掉|修改|换成|添加|加上|替换|改变/.test(text)) {
+    const imgItem = state.items.find(i => i.id === cursor.imgId);
+    const pin = imgItem?.pins?.find(p => p.idx === cursor.pinIdx);
+    if (imgItem && pin) {
+      addLog('正在裁剪标记区域发送给AI作图模型...');
+      const img = new Image();
+      img.onload = function() {
+        const cw = img.width, ch = img.height;
+        const cropSize = Math.min(cw, ch) * 0.25;
+        const cx = Math.round(pin.rx * cw - cropSize / 2);
+        const cy = Math.round(pin.ry * ch - cropSize / 2);
+        const sx = Math.max(0, cx), sy = Math.max(0, cy);
+        const sw = Math.min(cropSize, cw - sx), sh = Math.min(cropSize, ch - sy);
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = sw; cropCanvas.height = sh;
+        cropCanvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        const cropSrc = cropCanvas.toDataURL('image/jpeg', 0.85);
+        addLog('AI 作图模型处理中（仅修改标记区域，约30-60秒）...');
+        const imgPrompt = `根据用户要求处理这张局部图片：${text}。只修改图片中的目标内容，保持其他所有内容不变。返回处理后的图片。`;
+        callAI('image', '你是电商图片处理专家，精确修改图片指定内容。', [{type:'text', text: imgPrompt}, {type:'image_url', image_url:{url: cropSrc, detail:'high'}}], 2048).then(imgReply => {
+          if (imgReply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
+            let editUrl = null;
+            const urlMatch = imgReply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+            if (urlMatch) editUrl = urlMatch[0];
+            const mdMatch = imgReply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+            if (!editUrl && mdMatch) editUrl = mdMatch[1];
+            if (editUrl) {
+              // Rewrite to CDN URL and download
+              const keyMatch = editUrl.match(/\/d5\/[^?]+/);
+              const cdnUrl = (keyMatch && editUrl.includes('aliyuncs.com')) ? 'https://svt1.dchai.cn/xais/img' + keyMatch[0] : editUrl;
+              const imgProxyUrl = BASE_URL + '/api/image-proxy?url=' + encodeURIComponent(cdnUrl);
+              fetch(imgProxyUrl).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(blob => {
+                const reader = new FileReader();
+                reader.onload = function() {
+                  const editImg = new Image();
+                  editImg.onload = function() {
+                    const finalCanvas = document.createElement('canvas');
+                    finalCanvas.width = cw; finalCanvas.height = ch;
+                    const fctx = finalCanvas.getContext('2d');
+                    fctx.drawImage(img, 0, 0);
+                    fctx.drawImage(editImg, sx, sy, sw, sh);
+                    const newId = addCanvasItem('image', finalCanvas.toDataURL('image/png'), imgItem.x + 30, imgItem.y + 30, imgItem.w, imgItem.h);
+                    const newItem = state.items.find(i => i.id === newId);
+                    if (newItem && imgItem.analysis) { newItem.analysis = {...imgItem.analysis}; if (state.selectedId === newId) showAnalysisOnPanel(newItem.analysis); }
+                    addLog('✅ 已处理完成，仅修改标记区域');
+                  };
+                  editImg.src = reader.result;
+                };
+                reader.readAsDataURL(blob);
+              }).catch(e => addLog('图片合成失败: ' + e.message));
+              return;
+            }
+          }
+          addLog('图片处理失败: API未返回图片');
+        }).catch(e => addLog('图片处理异常: ' + e.message));
+      };
+      img.src = imgItem.src;
+    }
+  }
+}
+
+// ========== CHAT INPUT EVENTS ==========
+function setupChatInputEvents() {
+  const input = document.getElementById('chat-input');
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+  // Use MutationObserver to detect when badges are removed (Backspace, Delete, etc.)
+  const observer = new MutationObserver(function(mutations) {
+    for (const mutation of mutations) {
+      for (const removed of mutation.removedNodes) {
+        if (removed.nodeType === 1 && removed.classList && removed.classList.contains('cursor-badge-inline')) {
+          handleBadgeRemoved(removed);
+        }
+        // Check children of removed nodes
+        if (removed.nodeType === 1) {
+          removed.querySelectorAll('.cursor-badge-inline').forEach(b => handleBadgeRemoved(b));
+        }
+      }
+    }
+  });
+  observer.observe(input, { childList: true, subtree: true });
+}
+
+function handleBadgeRemoved(badge) {
+  const type = badge.dataset.type;
+  const id = parseInt(badge.dataset.id);
+  const pinIdx = badge.dataset.pinIdx !== undefined ? parseInt(badge.dataset.pinIdx) : null;
+  if (type === 'pin' && pinIdx !== null) {
+    removePinFromState(id, pinIdx);
+    state.currentPinCursor = null;
+  }
+  // If no more badges, clear image cursor too
+  if (!document.querySelectorAll('.cursor-badge-inline').length) {
+    state.currentImageCursor = null;
+  }
+  saveState();
+}
+
+// ========== IMAGE GENERATION ==========
+function generateMainImages(refItem, batchOffset) {
+  const count = state.bottomMainCount;
+  const platform = state.bottomPlatform;
+  const lang = state.bottomLanguage;
+  if (!refItem) { addLog('请先在画布中选择参考图片'); return; }
+  addLog(`AI 语言模型 [${getModelDisplay('language')}]: 正在生成 ${count} 张 ${platform} 1:1 主图提示词（语言: ${lang}）...`);
+  const refImgSrc = refItem.src;
+  const img = new Image();
+  img.onload = function() {
+    const c = document.createElement('canvas');
+    c.width = Math.min(img.width, 128);
+    c.height = Math.min(img.height, 128);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
+    const userContent = [
+      {type:'text', text:`围绕参考图中的产品，帮我生成${count}张1:1电商主图的提示词（文案要符合${platform}规定，不能违规），图片风格要统一，文案可以稍微丰富点。产品主体完全不变，只换背景、排版和文案，产品必须清晰。`},
+      {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
+    ];
+  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定，风格统一。产品主体不变且清晰，文案放背景不覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
+    if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
+      addLog('主图生成失败: AI 语言模型未返回提示词'); return;
+    }
+      addLog('AI 语言模型已返回提示词');
+      let promptList = prompts.match(/【([^】]+)】/g)?.map(p => p.replace(/[【】]/g,'')) || [];
+      if (promptList.length < count) {
+        addLog(`⚠️ 只获取到 ${promptList.length} 条提示词，不足 ${count} 条，自动补齐`);
+        while (promptList.length < count) {
+          promptList.push(`${platform} ${lang} 主图 ${promptList.length + 1}`);
+        }
+      }
+      promptList = promptList.slice(0, count);
+      for (let i = 0; i < count; i++) {
+        const idx = i + 1;
+        const promptText = promptList[i];
+      addLog(`AI 作图模型: 正在生成第 ${idx} 张主图...`);
+      setTimeout(() => {
+        const refImg = new Image();
+        refImg.onload = function() {
+          const cc = document.createElement('canvas');
+          cc.width = Math.min(refImg.width, 128);
+          cc.height = Math.min(refImg.height, 128);
+          const cx = cc.getContext('2d');
+          cx.drawImage(refImg, 0, 0, cc.width, cc.height);
+          const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
+          const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
+          const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
+          genImgDirect(promptText, refItem).then(src => {
+            if (src) { fetchImageAndAdd(src, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800); return; }
+            const imgContent = [
+              {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
+              {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持生成的图片中的产品和参考图中的产品外观一致，不得添加任何额外元素。`}
+            ];
+            callAI('image', '严格保持生成的图片中的产品和参考图中的产品外观一致、清晰，不得添加任何元素。', imgContent, 2048).then(imgReply => {
+              if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
+                addLog(`第 ${idx} 张主图生成失败`); return;
+              }
+              const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
+              const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
+              const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
+              if (imgUrl) {
+              fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张主图已生成`, bx, by, 800, 800);
+            } else {
+              addLog(`第 ${idx} 张主图生成失败: 未获取到图片链接`);
+            }
+          });
+          });
+        };
+        refImg.src = refItem.src;
+      }, i * 4000);
+    }
+    addChatMessage('assistant', `正在为 ${platform} 生成 ${count} 张 ${lang} 主图...`);
+  }).catch(() => addLog('主图生成失败'));
+  };
+  img.onerror = () => addLog('主图生成失败: 无法加载参考图');
+  img.src = refImgSrc;
+}
+
+function generateDetailImages(refItem, batchOffset) {
+  const count = state.bottomDetailCount;
+  const platform = state.bottomPlatform;
+  const lang = state.bottomLanguage;
+  if (!refItem) { addLog('请先在画布中选择参考图片'); return; }
+  addLog(`AI 语言模型 [${getModelDisplay('language')}]: 正在生成 ${count} 张 ${platform} 3:4 详情图提示词（语言: ${lang}）...`);
+  const refImgSrc = refItem.src;
+  const img = new Image();
+  img.onload = function() {
+    const c = document.createElement('canvas');
+    c.width = Math.min(img.width, 128);
+    c.height = Math.min(img.height, 128);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
+    const last5 = count > 5 ? '，详情图最后5张为产品展示图片' : '';
+    const userContent = [
+      {type:'text', text:`现在你是一名设计大师，帮我生成${count}张3:4的电商详情图的提示词（文案要符合${platform}规定，不能违规），详情图片风格要统一，文案要丰富${last5}。`},
+      {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
+    ];
+    callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4电商详情图。整体风格统一，文案丰富${last5}。围绕参考图中的产品，产品主体不变，文案放在背景区域不要覆盖产品。如有人物出镜，人物长相要符合${lang}国家的人种特征。提示词中不能出现"立即购买""下单"等购买引导词。请先生成一段整体设计说明确保风格统一，然后用【】包裹每张图片的具体提示词。侧重点可不同：产品特写、核心卖点、客户痛点等。一共${count}条图片提示词，每条用【】包裹。`, userContent, 2048).then(prompts => {
+      if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
+        addLog('详情图生成失败: AI 语言模型未返回提示词'); return;
+      }
+      addLog('AI 语言模型已返回提示词');
+      let promptList = prompts.match(/【([^】]+)】/g)?.map(p => p.replace(/[【】]/g,'')) || [];
+      if (promptList.length < count) {
+        addLog(`⚠️ 只获取到 ${promptList.length} 条提示词，不足 ${count} 条，自动补齐`);
+        while (promptList.length < count) {
+          promptList.push(`${platform} ${lang} 详情图 ${promptList.length + 1}`);
+        }
+      }
+      promptList = promptList.slice(0, count);
+      for (let i = 0; i < count; i++) {
+        const idx = i + 1;
+        const promptText = promptList[i];
+        addLog(`AI 作图模型: 正在生成第 ${idx} 张详情图...`);
+        setTimeout(() => {
+          const refImg = new Image();
+          refImg.onload = function() {
+            const cc = document.createElement('canvas');
+            cc.width = Math.min(refImg.width, 128);
+            cc.height = Math.min(refImg.height, 128);
+            const cx = cc.getContext('2d');
+            cx.drawImage(refImg, 0, 0, cc.width, cc.height);
+            const b64 = cc.toDataURL('image/jpeg', 0.6).split(',')[1];
+          const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
+          const by = refItem ? refItem.y + ((idx-1) * 240) : 100;
+          genImgDirect(promptText, refItem).then(src => {
+            if (src) { fetchImageAndAdd(src, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186); return; }
+              const imgContent = [
+                {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
+                {type:'text', text: `${promptText}。文案使用${lang}语言。重要：严格保持生成的图片中的产品和参考图中的产品外观一致，不得添加任何额外元素。`}
+              ];
+              callAI('image', '严格保持生成的图片中的产品和参考图中的产品外观一致、清晰，不得添加任何元素。', imgContent, 2048).then(imgReply => {
+                if (!imgReply || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(imgReply)) {
+                  addLog(`第 ${idx} 张详情图生成失败`); return;
+                }
+                const m1 = imgReply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)|\/[^\s]*)/i);
+                const m2 = imgReply.match(/\]\(\s*(https?:\/\/[^\s)]+)/);
+                const imgUrl = m1 ? m1[0] : (m2 ? m2[1] : null);
+                if (imgUrl) {
+                  fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张详情图已生成`, bx, by, 140, 186);
+                } else {
+                  addLog(`第 ${idx} 张详情图生成失败: 未获取到图片链接`);
+                }
+              });
+            });
+          };
+          refImg.src = refItem.src;
+        }, i * 4000);
+      }
+      addChatMessage('assistant', `正在为 ${platform} 生成 ${count} 张 ${lang} 详情图...`);
+    }).catch(() => addLog('详情图生成失败'));
+  };
+  img.onerror = () => addLog('详情图生成失败: 无法加载参考图');
+  img.src = refImgSrc;
+}
+
+function generateVideos(refItem) {
+  const count = state.bottomVideoCount;
+  const types = state.bottomVideoType.split(',').filter(Boolean);
+  const platform = state.bottomPlatform;
+  const lang = state.bottomLanguage;
+  const duration = state.bottomVideoDuration;
+  const resolution = state.bottomVideoResolution || '480p';
+  if (!refItem) { addLog('请先在画布中选择参考图片'); return; }
+
+  const refImgSrc = refItem.src;
+  const img = new Image();
+  img.onload = function() {
+    const c = document.createElement('canvas');
+    c.width = Math.min(img.width, 128);
+    c.height = Math.min(img.height, 128);
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
+
+    types.forEach((t, ti) => {
+      const promptKey = t === '带货' ? '带货达人' : '视频拍摄大师';
+      const promptDesc = t === '带货' ? `你是一名带货达人，帮我生成${count}个${duration}秒的${platform}的${lang}的${t}视频的分镜头脚本，视频比例要9:16.需要真人出镜（根据${lang}国家的人种特征）` : `你是一名视频拍摄大师，帮我生成${count}个${duration}秒的${platform}的${lang}的${t}视频的分镜头脚本，视频比例要9:16.要展示出产品的卖点`;
+      const userContent = [
+        {type:'text', text: promptDesc},
+        {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
+      ];
+      addLog(`AI 语言模型: 正在生成 ${count} 个 ${duration}秒 ${platform} ${lang} ${t}视频提示词...`);
+
+      callAI('language', `${promptDesc}。围绕参考图中的产品，产品主体完全不变，不得在产品上额外添加任何东西。脚本中不能出现"立即购买""下单"等购买引导词。分镜头描述（场景构图部分）用中文，画面中的文案/文字使用${lang}语言。只返回${count}条分镜头脚本，每条用【】包裹。`, userContent, 2048).then(prompts => {
+        if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
+          addLog(`${t}视频生成失败: AI 语言模型未返回提示词`); return;
+        }
+        let promptList = prompts.match(/【([^】]+)】/g)?.map(p => p.replace(/[【】]/g,'')) || [];
+        if (promptList.length < count) {
+          while (promptList.length < count) promptList.push(`${platform} ${lang} ${t}视频 ${promptList.length + 1}`);
+        }
+        promptList = promptList.slice(0, count);
+        addLog(`AI 语言模型已返回 ${promptList.length} 条视频提示词`);
+
+        addLog(`AI 视频模型 [${getModelDisplay('video')}]: 正在生成 ${t} 视频...`);
+        const vidConfig = getActiveApiConfig('video');
+        const isXais = vidConfig && (vidConfig.url.includes('dchai.cn') || vidConfig.url.includes('xais'));
+        if (isXais) {
+          generateXaisVideo(promptList, refItem, duration, [t], count, resolution);
+        } else {
+          const vidContent = [
+            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'high'}},
+            {type:'text', text: `根据以下分镜头脚本生成720P ${duration}秒9:16视频：\n${promptList.join('\n')}\n\n产品主体完全不变。`}
+          ];
+          callAI('video', `根据分镜头脚本生成720P ${duration}秒9:16视频，围绕参考图中的产品，产品主体完全不变。`, vidContent, 2048).then(vidReply => {
+            if (vidReply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(vidReply)) {
+              const vUrl = vidReply.match(/https?:\/\/[^\s"')>]+\.(?:mp4|webm|mov)/i);
+              if (vUrl) fetchImageAndAdd(vUrl[0], refItem, `✅ ${t} ${duration}秒视频已生成`, 200 + (ti % 3) * 160, 100 + Math.floor(ti / 3) * 260, 180, 320);
+              else addLog(`✅ ${t} ${duration}秒视频已生成`);
+            } else addLog(`⚠️ ${t}视频模型调用失败`);
+            addLog(`✅ ${t}视频生成完成`);
+          });
+        }
+      });
+    });
+  };
+  img.onerror = () => addLog('视频生成失败: 无法加载参考图');
+  img.src = refImgSrc;
+}
+
+// ========== XAIS VIDEO GENERATION (async API: /xais/workerTaskStart) ==========
+async function generateXaisVideo(promptList, refItem, duration, types, count, resolution) {
+  const vidConfig = getActiveApiConfig('video');
+  const token = vidConfig?.key || '';
+  const baseUrl = (vidConfig?.url || 'https://xais.dchai.cn').replace(/\/+$/, '');
+  addLog('正在上传参考图...');
+  const cc = document.createElement('canvas');
+  const img = new Image();
+  img.onload = async function() {
+    cc.width = Math.min(img.width, 512);
+    cc.height = Math.min(img.height, 512);
+    const cx = cc.getContext('2d');
+    cx.drawImage(img, 0, 0, cc.width, cc.height);
+    const b64 = cc.toDataURL('image/jpeg', 0.85);
+    const publicUrl = await uploadImageToHost(b64);
+    if (!publicUrl) { addLog('⚠️ 图片上传失败'); return; }
+    addLog('参考图已上传');
+    let completed = 0;
+    const total = types.length * count;
+    types.forEach(t => {
+      for (let i = 0; i < count; i++) {
+        const idx = i + 1 + types.indexOf(t) * count;
+        const promptText = promptList[idx - 1] || `${t}视频 ${i+1}`;
+        setTimeout(async () => {
+          addLog(`Xais: 正在生成${t}视频 ${i+1}...`);
+          try {
+            const reqId = String(Date.now()).slice(-11);
+            const startRes = await fetch(BASE_URL + '/api/fetch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: baseUrl + '/xais/workerTaskStart',
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'x-request-id': reqId },
+                body: JSON.stringify({
+                  prompt: promptText,
+                  model: vidConfig?.model || 'seedance2',
+                  ref: [publicUrl],
+                  ratio: '9:16',
+                  custom_field: { res: resolution, input: 'REF', duration: String(duration), outputFormat: 'video/mp4' }
+                })
+              })
+            });
+            const startText = await startRes.text().catch(() => '');
+            if (!startRes.ok) {
+              addLog(`Xais 任务警告 (${startRes.status}): ${startText.substring(0, 200)}`);
+            }
+            const taskId = startText.replace(/^"(.*)"$/, '$1').trim();
+            if (!taskId) { addLog(`Xais 未返回任务ID: ${startText.substring(0, 200)}`); completed++; return; }
+            addLog(`Xais 任务已提交: ${taskId}`);
+            let resultKey = null;
+            for (let p = 0; p < 120; p++) {
+              await new Promise(r => setTimeout(r, 5000));
+              const pollRes = await fetch(BASE_URL + '/api/fetch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  url: baseUrl + '/xais/workerTaskWait?json=1&id=' + encodeURIComponent(taskId),
+                  method: 'GET',
+                  headers: { 'Authorization': 'Bearer ' + token }
+                })
+              });
+              const pollText = await pollRes.text().catch(() => '');
+              let pollData;
+              try { pollData = JSON.parse(pollText); } catch { continue; }
+              if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') {
+                addLog(`Xais 任务失败: ${pollData.error}`);
+                break;
+              }
+              if (pollData.progress === 100 && pollData.result && pollData.result.length > 0) {
+                resultKey = pollData.result[0];
+                break;
+              }
+            }
+            if (!resultKey) {
+              addLog(`${t}视频 ${i+1} 生成失败: 未获取到视频`);
+              completed++;
+              if (completed === total) addLog(`✅ ${total} 个视频全部生成完成！`);
+              return;
+            }
+            // Get actual URL from key
+            const attRes = await fetch(BASE_URL + '/api/fetch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: baseUrl + '/xais/attUrls?att=' + encodeURIComponent(resultKey),
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token }
+              })
+            });
+            const attText = await attRes.text().catch(() => '');
+            let attData;
+            try { attData = JSON.parse(attText); } catch { attData = null; }
+            const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
+            addLog(`${t}视频 ${i+1} 已完成`);
+            fetchImageAndAdd(finalUrl, refItem, `${t}视频 ${i+1} 已生成`, 200 + (idx % 3) * 160, 100 + Math.floor(idx / 3) * 260, 180, 320);
+            completed++;
+            if (completed === total) addLog(`✅ ${total} 个视频全部生成完成！`);
+          } catch(e) { addLog(`${t}视频 ${i+1} 异常: ${e.message}`); }
+        }, i * 5000 + types.indexOf(t) * count * 8000);
+      }
+    });
+  };
+  img.onerror = () => addLog('⚠️ 无法加载参考图');
+  img.src = refItem.src;
+}
+
+// ========== ONE-CLICK GENERATE ==========
+function oneClickGenerate() {
+  const refId = state.selectedId || state.items[0]?.id;
+  if (!refId) { addLog('请先在画布中选择或上传参考图片'); return; }
+  const refItem = state.items.find(i => i.id === refId);
+  if (!refItem) { addLog('参考图片未找到'); return; }
+  const hasMain = state.bottomMainCount > 0;
+  const hasDetail = state.bottomDetailCount > 0;
+  const hasVideo = state.bottomVideo;
+  if (!hasMain && !hasDetail && !hasVideo) {
+    addLog('请先在底部栏勾选需要生成的内容（主图/详情图/视频）');
+    return;
+  }
+  const baseX = refItem.x + refItem.w + 30;
+  const rightmost = state.items.reduce((max, item) => item.x >= baseX - 10 ? Math.max(max, item.x + item.w + 30) : max, baseX);
+  const batchOffset = Math.max(0, rightmost - baseX);
+  addLog('========== 🚀 一键生成启动 ==========');
+  addLog(`平台: ${state.bottomPlatform} | 语言: ${state.bottomLanguage}`);
+  let delay = 0;
+  if (hasMain) {
+    setTimeout(() => { addLog('--- 开始生成主图 ---'); generateMainImages(refItem, batchOffset); }, delay);
+    delay += state.bottomMainCount * 800 + 2500;
+  }
+  if (hasDetail) {
+    setTimeout(() => { addLog('--- 开始生成详情图 ---'); generateDetailImages(refItem, batchOffset); }, delay);
+    delay += state.bottomDetailCount * 800 + 2500;
+  }
+  if (hasVideo) {
+    setTimeout(() => { addLog('--- 开始生成视频 ---'); generateVideos(refItem); }, delay);
+    delay += state.bottomVideoCount * 600 + 2500;
+  }
+  setTimeout(() => { addLog('✅ 一键生成全部完成！'); }, delay + 500);
+  addChatMessage('assistant', `一键生成已启动：${hasMain?state.bottomMainCount+'张主图 ':''}${hasDetail?state.bottomDetailCount+'张详情图 ':''}${hasVideo?state.bottomVideoCount+'个视频':''}`);
+}
+
+function getTargetId() {
+  return state.currentImageCursor || state.selectedId || state.items[0]?.id;
+}
+
+function simulateAIResponse(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes('分析') || lower.includes('卖点')) {
+    aiAnalyze(getTargetId());
+    return '正在分析产品，请查看右侧 AI 分析面板...';
+  }
+  if (lower.includes('翻译')) {
+    return '请点击图片上的"AI翻译"按钮选择目标语言。';
+  }
+  if (lower.includes('白底')) {
+    const id = getTargetId();
+    if (id) aiWhiteBg(id);
+    return '正在生成白底图...';
+  }
+  if (lower.includes('清晰') || lower.includes('高清')) {
+    const id = getTargetId();
+    if (id) aiEnhance(id);
+    return '正在提升图片清晰度...';
+  }
+  if (lower.includes('主图')) {
+    const id = state.selectedId || state.items[0]?.id;
+    const item = state.items.find(i => i.id === id);
+    if (item) generateMainImages(item, 0);
+    return `正在生成 ${state.bottomMainCount} 张 ${state.bottomPlatform} 主图，请查看日志面板...`;
+  }
+  if (lower.includes('详情')) {
+    const id = state.selectedId || state.items[0]?.id;
+    const item = state.items.find(i => i.id === id);
+    if (item) generateDetailImages(item, 0);
+    return `正在生成 ${state.bottomDetailCount} 张 ${state.bottomPlatform} 详情图，请查看日志面板...`;
+  }
+  if (lower.includes('视频') || lower.includes('带货')) {
+    if (!state.bottomVideo) return '请先在底部控制栏勾选"视频"选项';
+    const id = state.selectedId || state.items[0]?.id;
+    const item = state.items.find(i => i.id === id);
+    if (item) generateVideos(item);
+    return `正在生成 ${state.bottomVideoCount} 个 ${state.bottomVideoDuration}秒 ${state.bottomVideoType.replace(',','+')}视频...`;
+  }
+  return `已收到指令。当前选择平台: ${state.bottomPlatform}，语言: ${state.bottomLanguage}。请提供更具体的需求。`;
+}
+
+function addChatMessage(role, text) {
+  const prefix = role === 'user' ? '👤 我' : '🤖 AI';
+  const body = document.getElementById('log-body');
+  const div = document.createElement('div');
+  div.style.cssText = 'padding:4px 0;font-size:12px;border-bottom:1px solid var(--border)';
+  div.innerHTML = `<span style="font-weight:600;color:${role==='user'?'#34c759':'var(--accent)'}">${prefix}:</span> ${text}`;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+}
+
+// ========== LOGS ==========
+function addLog(msg) {
+  const body = document.getElementById('log-body');
+  const div = document.createElement('div');
+  div.style.cssText = 'padding:3px 0;font-size:12px;border-bottom:1px solid var(--border);opacity:0.8';
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+  saveState();
+}
+
+function updateLogModelInfo() {
+  const sel = state.selectedModel;
+  const parts = [];
+  if (sel.language) parts.push(`语言:${sel.language}`);
+  if (sel.image) parts.push(`作图:${sel.image}`);
+  if (sel.video) parts.push(`视频:${sel.video}`);
+  if (parts.length > 0) {
+    addLog(`当前已选模型: ${parts.join(' | ')}`);
+  }
+}
+
+function clearLogs() {
+  document.getElementById('log-body').innerHTML = '';
+}
+
+function clearAnalysis() {
+  showAnalysisOnPanel(null);
+  const item = state.items.find(i => i.id === state.selectedId || i.id === state.currentImageCursor);
+  if (item) { delete item.analysis; saveState(); }
+}
+
+// ========== MODEL BUTTONS ==========
+function toggleModelPopup(btn) {
+  const popup = btn.querySelector('.model-popup') || createModelPopup(btn);
+  popup.classList.toggle('show');
+}
+
+function createModelPopup(btn) {
+  const popup = document.createElement('div');
+  popup.className = 'model-popup';
+  const type = btn.dataset.model;
+  const models = getModelsForType(type);
+  popup.innerHTML = models.map(m => `
+    <div class="model-option ${state.selectedModel[type]===m?'selected':''}" onclick="selectModel('${type}','${m}',this)">
+      <span>${m}</span>
+      <span class="check">✓</span>
+    </div>
+  `).join('');
+  btn.appendChild(popup);
+  return popup;
+}
+
+function getModelsForType(type) {
+  const s = state.settings[type];
+  if (!s) return ['未配置模型'];
+  const allModels = [...(s.official?.models||[]), ...(s.xais?.models||[]), ...(s.cici?.models||[]), ...(s.newai?.models||[])];
+  if (allModels.length === 0) return ['未配置模型'];
+  return allModels;
+}
+
+function selectModel(type, model, el) {
+  if (state.selectedModel[type] === model) {
+    state.selectedModel[type] = null;
+    const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+    addLog(`已取消 ${labels[type]} 模型`);
+  } else {
+    state.selectedModel[type] = model;
+    const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+    addLog(`已选择 ${labels[type]} 模型: ${model}`);
+  }
+  updateModelButtons();
+  updateLogModelInfo();
+  saveState();
+}
+
+function updateModelButtons() {
+  const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+  document.querySelectorAll('.model-btn').forEach(btn => {
+    const type = btn.dataset.model;
+    const selected = state.selectedModel[type];
+    btn.classList.toggle('active', !!selected);
+    btn.textContent = labels[type] || type;
+  });
+}
+
+// ========== SETTINGS ==========
+function toggleSettings() {
+  const modal = document.getElementById('settings-modal');
+  const show = !modal.classList.contains('show');
+  modal.classList.toggle('show');
+  if (show) hideQuickToolbar();
+}
+
+function switchSettingsTab(btn, tabId) {
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.modal-pane').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+
+function switchApiChannel(btn, channel) {
+  ['official','xais','cici','newai'].forEach(c => {
+    const el = document.getElementById(`api-${c}`);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById(`api-${channel}`).style.display = 'block';
+  btn.parentElement.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function saveApi(modelType, channel) {
+  const name = document.getElementById(`${modelType}-${channel}-name`).value.trim();
+  const key = document.getElementById(`${modelType}-${channel}-key`).value.trim();
+  const url = document.getElementById(`${modelType}-${channel}-url`).value.trim();
+  if (!name || !key || !url) { addLog('请填写模型名称、API 密钥和接口 URL'); return; }
+  if (!state.settings[modelType][channel].models) state.settings[modelType][channel].models = [];
+  state.settings[modelType][channel].models.push(name);
+  state.settings[modelType][channel].name = name;
+  state.settings[modelType][channel].url = url;
+  state.settings[modelType][channel].key = key;
+  validateSelectedModels();
+  renderModelDisplays();
+  saveState();
+  const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI'})[channel] || channel;
+  addLog(`${labels[modelType]} ${chLabel}模型「${name}」已保存`);
+  document.getElementById(`${modelType}-${channel}-name`).value = '';
+  document.getElementById(`${modelType}-${channel}-key`).value = '';
+  document.getElementById(`${modelType}-${channel}-url`).value = '';
+}
+
+function clearApi(modelType, channel) {
+  state.settings[modelType][channel] = {name:'', url:'', key:'', models:[]};
+  validateSelectedModels();
+  renderModelDisplays();
+  saveState();
+  const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI'})[channel] || channel;
+  addLog(`${labels[modelType]} ${chLabel}接口已清空`);
+}
+
+function validateSelectedModels() {
+  let changed = false;
+  ['language','image','video'].forEach(type => {
+    const allModels = [...(state.settings[type]?.official?.models||[]), ...(state.settings[type]?.xais?.models||[]), ...(state.settings[type]?.cici?.models||[]), ...(state.settings[type]?.newai?.models||[])];
+    if (state.selectedModel[type] && !allModels.includes(state.selectedModel[type])) {
+      state.selectedModel[type] = null;
+      changed = true;
+    }
+  });
+  if (changed) {
+    updateModelButtons();
+    updateLogModelInfo();
+  } else {
+    updateModelButtons();
+  }
+}
+
+function renderModelDisplays() {
+  ['language','image','video'].forEach(type => {
+    ['official','xais','cici','newai'].forEach(channel => {
+      const container = document.getElementById(`${type}-${channel}-models`);
+      if (!container) return;
+      const models = state.settings[type]?.[channel]?.models || [];
+      container.innerHTML = models.map((m, idx) => `<span class="model-chip" data-type="${type}" data-channel="${channel}" data-idx="${idx}">${m}<button class="chip-del" data-idx="${idx}">✕</button></span>`).join('');
+    });
+  });
+  // Rebuild model popups
+  document.querySelectorAll('.model-popup').forEach(p => p.remove());
+  document.querySelectorAll('.model-btn').forEach(b => {
+    const popup = b.querySelector('.model-popup');
+    if (popup) popup.remove();
+  });
+  updateModelButtons();
+}
+
+// Delegate click events for chip delete buttons
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.chip-del');
+  if (!btn) return;
+  const chip = btn.closest('.model-chip');
+  if (!chip) return;
+  const type = chip.dataset.type;
+  const channel = chip.dataset.channel;
+  const idx = parseInt(btn.dataset.idx);
+  const arr = state.settings[type]?.[channel]?.models;
+  if (!arr || idx < 0 || idx >= arr.length) return;
+  const modelName = arr[idx];
+  arr.splice(idx, 1);
+  validateSelectedModels();
+  renderModelDisplays();
+  saveState();
+  const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
+  addLog(`已删除 ${labels[type]} 模型「${modelName}」`);
+});
+
+function setTheme(theme) {
+  state.settings.theme = theme;
+  applyTheme(theme);
+  document.getElementById('theme-light').classList.toggle('active', theme==='light');
+  document.getElementById('theme-dark').classList.toggle('active', theme==='dark');
+  saveState();
+}
+
+function applyTheme(theme) {
+  document.body.classList.toggle('dark', theme==='dark');
+}
+
+// ========== PLATFORM LIMITS ==========
+const platformLimits = {
+  '淘宝': {main:10},
+  '拼多多': {main:20},
+  '抖音': {main:6},
+  '京东': {main:10},
+  '亚马逊': {main:10},
+  'TikTok': {main:9},
+  'Temu': {main:10},
+  'SHEIN': {main:8},
+  'Shopee 虾皮': {main:9},
+  'Lazada 来赞达': {main:8},
+  '美客多 Mercado Livre': {main:6},
+  '快手': {main:9},
+  '小红书': {main:6},
+  'Shopify': {main:20}
+};
+
+let _suppressPlatformLog = false;
+function onPlatformChange() {
+  const platform = state.bottomPlatform;
+  const suppress = _suppressPlatformLog;
+  if (!suppress) {
+    addLog(`正在查询 ${platform} 平台图片数量限制...`);
+  }
+  setTimeout(() => {
+    if (!suppress) {
+      addLog(`${platform} 平台：主图最多 ${platformLimits[platform]?.main||10} 张，详情图不限制`);
+    }
+    const limits = platformLimits[platform] || {main:10};
+    state.bottomMainCount = Math.min(state.bottomMainCount, limits.main);
+    renderBottomBar();
+    saveState();
+  }, 500);
+}
+
+// ========== BOTTOM BAR ==========
+function renderBottomBar() {
+  const bar = document.getElementById('bottom-bar');
+  const langOpts = languages.map(l => `<option value="${l}" ${state.bottomLanguage===l?'selected':''}>${l}</option>`).join('');
+  const platforms = ['淘宝','拼多多','抖音','京东','亚马逊','TikTok','Temu','SHEIN','Shopee 虾皮','Lazada 来赞达','美客多 Mercado Livre','快手','小红书','Shopify'];
+  const platOpts = platforms.map(p => `<option value="${p}" ${state.bottomPlatform===p?'selected':''}>${p}</option>`).join('');
+  bar.innerHTML = `
+    <div class="control-group">
+      <label>语言</label>
+      <select onchange="state.bottomLanguage=this.value;saveState()">${langOpts}</select>
+    </div>
+    <div class="separator"></div>
+    <div class="control-group">
+      <label>平台</label>
+      <select onchange="state.bottomPlatform=this.value;onPlatformChange();saveState()">${platOpts}</select>
+    </div>
+    <div class="separator"></div>
+    <div class="control-group">
+      <input type="checkbox" ${state.bottomMainCount>0?'checked':''} onchange="state.bottomMainCount=this.checked?1:0;saveState()">
+      <label>主图</label>
+      <input type="number" min="0" max="${platformLimits[state.bottomPlatform]?.main||20}" value="${state.bottomMainCount}" style="width:45px" onchange="var max=${platformLimits[state.bottomPlatform]?.main||20};this.value=Math.min(parseInt(this.value)||0,max);state.bottomMainCount=parseInt(this.value)||0;saveState()">
+    </div>
+    <div class="separator"></div>
+    <div class="control-group">
+      <input type="checkbox" ${state.bottomDetailCount>0?'checked':''} onchange="state.bottomDetailCount=this.checked?1:0;saveState()">
+      <label>详情图</label>
+      <input type="number" min="0" value="${state.bottomDetailCount}" style="width:45px" onchange="state.bottomDetailCount=parseInt(this.value)||0;saveState()">
+    </div>
+    <div class="separator"></div>
+    <div class="control-group" style="position:relative">
+      <input type="checkbox" ${state.bottomVideo?'checked':''} onchange="toggleVideoDropdown(this)">
+      <label>视频</label>
+      <div id="video-dropdown" class="tool-dropdown above" style="min-width:170px;padding:8px;${state.bottomVideo?'display:block':'display:none'}">
+        <label style="display:block;font-size:12px;margin-bottom:4px;color:var(--text)">类型</label>
+        <label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" ${state.bottomVideoType.includes('带货')?'checked':''} onchange="toggleVideoType('带货')">带货
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+          <input type="checkbox" ${state.bottomVideoType.includes('展示')?'checked':''} onchange="toggleVideoType('展示')">展示
+        </label>
+        <div class="api-field"><label>数量</label>
+          <input type="number" min="1" max="10" value="${state.bottomVideoCount}" id="video-count" onchange="state.bottomVideoCount=parseInt(this.value)||1;saveState()" style="flex:1">
+        </div>
+        <div class="api-field"><label>时长</label>
+          <input type="number" min="1" max="300" value="${state.bottomVideoDuration}" id="video-duration" onchange="state.bottomVideoDuration=parseInt(this.value)||15;saveState()" style="flex:1">
+          <span style="font-size:11px;color:#888">秒</span>
+        </div>
+        <div class="api-field"><label>分辨率</label>
+          <select onchange="state.bottomVideoResolution=this.value;saveState()" style="flex:1;font-size:12px">
+            <option value="480p" ${state.bottomVideoResolution==='480p'?'selected':''}>480P</option>
+            <option value="720p" ${state.bottomVideoResolution==='720p'?'selected':''}>720P</option>
+            <option value="1080p" ${state.bottomVideoResolution==='1080p'?'selected':''}>1080P</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="separator"></div>
+    <div class="control-group">
+      <button onclick="oneClickGenerate()" style="padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap">✨ 一键生成</button>
+    </div>
+  `;
+}
+
+// ========== VIDEO DROPDOWN ==========
+function toggleVideoType(type) {
+  let types = state.bottomVideoType.split(',').filter(Boolean);
+  if (types.includes(type)) {
+    types = types.filter(t => t !== type);
+  } else {
+    types.push(type);
+  }
+  state.bottomVideoType = types.length > 0 ? types.join(',') : '带货';
+  saveState();
+}
+
+// ========== VIDEO DROPDOWN ==========
+function toggleVideoDropdown(checkbox) {
+  state.bottomVideo = checkbox.checked;
+  document.getElementById('video-dropdown').style.display = checkbox.checked ? 'block' : 'none';
+  saveState();
+}
+
+// Close video dropdown when clicking outside
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('video-dropdown');
+  if (!dd || dd.style.display !== 'block') return;
+  const group = dd.closest('.control-group');
+  if (group && !group.contains(e.target)) dd.style.display = 'none';
+});
+
+// ========== DRAWING ON ITEMS ==========
+function drawOnItem(e, itemId) {
+  const item = state.items.find(i => i.id === itemId);
+  if (!item) return;
+  const el = document.getElementById(`item-${item.id}`);
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / state.zoom;
+  const y = (e.clientY - rect.top) / state.zoom;
+
+  if (!state.brushCanvas) {
+    const canvas = document.createElement('canvas');
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.zIndex = '5';
+    canvas.width = item.w;
+    canvas.height = item.h;
+    el.style.position = 'relative';
+    el.appendChild(canvas);
+    state.brushCanvas = canvas;
+    state.brushCtx = canvas.getContext('2d');
+  }
+
+  const ctx = state.brushCtx;
+  const lastX = state._lastBrushX;
+  const lastY = state._lastBrushY;
+  state._lastBrushX = x;
+  state._lastBrushY = y;
+  if (state.drawing) {
+    const size = parseInt(document.getElementById('brush-size')?.value || 5);
+    const color = document.getElementById('brush-color')?.value || '#ff0000';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = size * 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (lastX !== undefined && lastY !== undefined) {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (state.erasing) {
+    const size = parseInt(document.getElementById('eraser-size')?.value || 20);
+    const opacity = parseInt(document.getElementById('eraser-opacity')?.value || 100) / 100;
+    ctx.strokeStyle = `rgba(255,255,255,${opacity})`;
+    ctx.lineWidth = size * 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (lastX !== undefined && lastY !== undefined) {
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// ========== SELECTION BOX (RIGHT CLICK) ==========
+function startSelectionBox(e) {
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+  state.selectionBox = {startX: e.clientX - rect.left, startY: e.clientY - rect.top};
+  const box = document.getElementById('selection-box');
+  box.className = 'selection-box show';
+  box.style.left = state.selectionBox.startX + 'px';
+  box.style.top = state.selectionBox.startY + 'px';
+  box.style.width = '0';
+  box.style.height = '0';
+}
+
+function updateSelectionBox(e) {
+  if (!state.selectionBox) return;
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+  const box = document.getElementById('selection-box');
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const left = Math.min(state.selectionBox.startX, cx);
+  const top = Math.min(state.selectionBox.startY, cy);
+  const width = Math.abs(cx - state.selectionBox.startX);
+  const height = Math.abs(cy - state.selectionBox.startY);
+  box.style.left = left + 'px';
+  box.style.top = top + 'px';
+  box.style.width = width + 'px';
+  box.style.height = height + 'px';
+}
+
+function endSelectionBox(e) {
+  const box = document.getElementById('selection-box');
+  box.className = 'selection-box';
+  if (!state.selectionBox) return;
+
+  const container = document.getElementById('canvas-container');
+  const rect = container.getBoundingClientRect();
+  const selLeft = parseInt(box.style.left);
+  const selTop = parseInt(box.style.top);
+  const selRight = selLeft + parseInt(box.style.width);
+  const selBottom = selTop + parseInt(box.style.height);
+
+  // Check which items fall within selection
+  const selectedIds = [];
+  state.items.forEach(item => {
+    const el = document.getElementById(`item-${item.id}`);
+    if (!el) return;
+    const itemRect = el.getBoundingClientRect();
+    const itemLeft = itemRect.left - rect.left;
+    const itemTop = itemRect.top - rect.top;
+    const itemRight = itemLeft + itemRect.width;
+    const itemBottom = itemTop + itemRect.height;
+    if (itemLeft < selRight && itemRight > selLeft && itemTop < selBottom && itemBottom > selTop) {
+      selectedIds.push(item.id);
+    }
+  });
+
+  state.selectionBox = null;
+  if (selectedIds.length > 0) {
+    state.selectedIds = selectedIds;
+    state.selectedId = null;
+    renderCanvas();
+    showMultiToolbar(selectedIds);
+  }
+}
+
+function showMultiToolbar(ids) {
+  const toolbar = document.getElementById('quick-toolbar');
+  toolbar.innerHTML = '';
+  toolbar.className = 'show';
+  toolbar.dataset.itemIds = ids.join(',');
+  toolbar.style.left = '50%';
+  toolbar.style.top = '10px';
+
+  const btns = [
+    {text:'AI去水印', action:()=>toggleDropdown('watermark-dropdown-multi', ids[0])},
+    {text:'AI翻译', action:()=>toggleDropdown('translate-dropdown-multi', ids[0])},
+    {text:'画笔', action:()=>{selectItem(ids[0]);toggleBrush(ids[0])}},
+    {text:'橡皮擦', action:()=>{selectItem(ids[0]);toggleEraser(ids[0])}},
+    {text:'变清晰', action:()=>ids.forEach(id=>aiEnhance(id))},
+    {text:'AI分析', action:()=>ids.forEach(id=>aiAnalyze(id))},
+    {text:'AI白底', action:()=>ids.forEach(id=>aiWhiteBg(id))},
+    {text:'下载', action:()=>ids.forEach(id=>downloadItem(id))},
+    {text:'删除', action:()=>{ids.forEach(id=>removeCanvasItem(id));hideQuickToolbar()}}
+  ];
+  btns.forEach((b, i) => {
+    const btn = document.createElement('button');
+    btn.textContent = b.text;
+    btn.onclick = b.action;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;display:inline-flex';
+    wrap.appendChild(btn);
+    if (i === 0) {
+      const dd = document.createElement('div');
+      dd.className = 'tool-dropdown'; dd.id = 'watermark-dropdown-multi';
+      dd.innerHTML = `<label>水印文字</label><input type="text" id="wm-text-multi" placeholder="输入水印文字" autocomplete="off"><div class="dropdown-actions"><button onclick="executeWatermarkMulti(${ids[0]})">执行</button></div>`;
+      wrap.appendChild(dd);
+    } else if (i === 1) {
+      const dd = document.createElement('div');
+      dd.className = 'tool-dropdown'; dd.id = 'translate-dropdown-multi';
+      dd.innerHTML = `<label>选择目标语言</label><select id="translate-lang-multi">${languages.map(l=>`<option value="${l}">${l}</option>`).join('')}</select><div class="dropdown-actions"><button onclick="executeTranslateMulti(${ids[0]})">翻译</button></div>`;
+      wrap.appendChild(dd);
+    }
+    toolbar.appendChild(wrap);
+  });
+  // Size inputs for all selected images
+  const wInput = document.createElement('input');
+  wInput.type = 'number';
+  const firstItem = state.items.find(i=>i.id===ids[0]);
+  wInput.value = ids.length === 1 && firstItem ? Math.round(firstItem.w) : '';
+  wInput.placeholder = '宽';
+  wInput.style.width = '55px';
+  wInput.onchange = wInput.oninput = function() {
+    const val = parseFloat(this.value);
+    if (!val) return;
+    ids.forEach(id => {
+      const item = state.items.find(i=>i.id===id);
+      if (!item) return;
+      const ratio = item.h / item.w;
+      item.w = val;
+      if (lockRatio) item.h = Math.round(val * ratio);
+      updateItemPosition(item);
+    });
+    if (ids.length === 1 && lockRatio && firstItem) hInput.value = Math.round(val * (firstItem.h / firstItem.w));
+    saveState();
+  };
+  const lockBtn = document.createElement('button');
+  let lockRatio = true;
+  lockBtn.textContent = '🔗';
+  lockBtn.className = 'lock-btn active';
+  lockBtn.onclick = function() { lockRatio = !lockRatio; lockBtn.classList.toggle('active'); };
+  toolbar.appendChild(wInput);
+  toolbar.appendChild(lockBtn);
+  const hInput = document.createElement('input');
+  hInput.type = 'number';
+  hInput.value = ids.length === 1 && firstItem ? Math.round(firstItem.h) : '';
+  hInput.placeholder = '高';
+  hInput.style.width = '55px';
+  hInput.onchange = hInput.oninput = function() {
+    const val = parseFloat(this.value);
+    if (!val) return;
+    ids.forEach(id => {
+      const item = state.items.find(i=>i.id===id);
+      if (!item) return;
+      const ratio = item.w / item.h;
+      item.h = val;
+      if (lockRatio) item.w = Math.round(val * ratio);
+      updateItemPosition(item);
+    });
+    if (ids.length === 1 && lockRatio && firstItem) wInput.value = Math.round(val * (firstItem.w / firstItem.h));
+    saveState();
+  };
+  toolbar.appendChild(hInput);
+}
+
+// ========== UTILITY ==========
+function getCanvasItemAt(e, padding) {
+  padding = padding || 12;
+  const container = document.getElementById('canvas-container');
+  const containerRect = container.getBoundingClientRect();
+  const reversed = [...state.items].reverse();
+  for (const item of reversed) {
+    const el = document.getElementById(`item-${item.id}`);
+    if (!el) continue;
+    const rect = el.getBoundingClientRect();
+    if (e.clientX >= rect.left - padding && e.clientX <= rect.right + padding &&
+        e.clientY >= rect.top - padding && e.clientY <= rect.bottom + padding) {
+      return item;
+    }
+  }
+  return null;
+}
+
+// ========== CLIPBOARD PASTE ==========
+function setupClipboard() {
+  document.addEventListener('paste', function(e) {
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function(ev) {
+            limitImgSize(ev.target.result, 1920).then(resizedSrc => {
+              const container = document.getElementById('canvas-container');
+              const cr = container.getBoundingClientRect();
+              const cx = (cr.width / 2 - state.pan.x) / state.zoom;
+              const cy = (cr.height / 2 - state.pan.y) / state.zoom;
+              const img = new Image();
+              img.onload = function() {
+                addCanvasItem('image', resizedSrc, cx - img.naturalWidth / 2, cy - img.naturalHeight / 2, img.naturalWidth, img.naturalHeight);
+              };
+              img.src = resizedSrc;
+            });
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  });
+}
+
+// ========== KEYBOARD SHORTCUTS ==========
+let undoStack = [];
+
+function saveUndoState() {
+  undoStack.push(JSON.parse(JSON.stringify(state.items)));
+  if (undoStack.length > 50) undoStack.shift();
+}
+
+function setupKeyboard() {
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        if (undoStack.length > 0) {
+          state.items = undoStack.pop();
+          const inner = document.getElementById('canvas-inner');
+          inner.querySelectorAll('.canvas-item').forEach(el => el.remove());
+          renderCanvas();
+          saveState();
+          // Re-sync cursor badges: clear and re-insert for current selection
+          const input = document.getElementById('chat-input');
+          input.querySelectorAll('.cursor-badge-inline').forEach(b => b.remove());
+          state.currentImageCursor = null;
+          state.currentPinCursor = null;
+          if (state.selectedId) {
+            const item = state.items.find(i => i.id === state.selectedId);
+            if (item) {
+              state.currentImageCursor = item.id;
+              insertCursorBadge('image', item.id);
+              if (item.pins && item.pins.length > 0) {
+                const lastPin = item.pins[item.pins.length - 1];
+                state.currentPinCursor = lastPin.idx;
+                insertCursorBadge('pin', item.id, lastPin.idx);
+              }
+            }
+          }
+          addLog('已撤销上一步操作');
+        }
+        return;
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        if (document.activeElement === document.getElementById('chat-input')) return;
+        if (state.items.length > 0) {
+          state.selectedIds = state.items.map(i => i.id);
+          state.selectedId = null;
+          renderCanvas();
+          showMultiToolbar(state.selectedIds);
+          addLog(`已全选 ${state.items.length} 个素材`);
+        }
+        return;
+      }
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.isContentEditable)) return;
+      if (state.selectedId) {
+        removeCanvasItem(state.selectedId);
+        hideQuickToolbar();
+      } else if (state.selectedIds.length > 0) {
+        state.selectedIds.forEach(id => removeCanvasItem(id));
+        state.selectedIds = [];
+        hideQuickToolbar();
+      }
+    }
+  });
+}
+
+// ========== FULL SETUP CANVAS EVENTS ==========
+function setupCanvasEvents() {
+  const canvasArea = document.getElementById('canvas-area');
+  const container = document.getElementById('canvas-container');
+  const inner = document.getElementById('canvas-inner');
+
+  canvasArea.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  canvasArea.addEventListener('drop', function(e) {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      for (const file of files) {
+        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+          const reader = new FileReader();
+          reader.onload = function(ev) {
+            const containerRect = container.getBoundingClientRect();
+            const x = (e.clientX - containerRect.left - state.pan.x) / state.zoom;
+            const y = (e.clientY - containerRect.top - state.pan.y) / state.zoom;
+            const isVideo = file.type.startsWith('video/');
+            if (isVideo) {
+              addCanvasItem('video', ev.target.result, x - 160, y - 120, 320, 240);
+            } else {
+              limitImgSize(ev.target.result, 1920).then(resizedSrc => {
+                const img = new Image();
+                img.onload = function() {
+                  addCanvasItem('image', resizedSrc, x - img.naturalWidth / 2, y - img.naturalHeight / 2, img.naturalWidth, img.naturalHeight);
+                };
+                img.src = resizedSrc;
+              });
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  });
+
+  // Wheel zoom
+  container.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const oldZoom = state.zoom;
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    state.zoom = Math.min(5, Math.max(0.1, state.zoom * delta));
+    // Zoom toward mouse position
+    state.pan.x = mx - (mx - state.pan.x) / oldZoom * state.zoom;
+    state.pan.y = my - (my - state.pan.y) / oldZoom * state.zoom;
+    document.getElementById('zoom-label').textContent = Math.round(state.zoom * 100) + '%';
+    renderCanvas();
+    hideQuickToolbar();
+  }, {passive: false});
+
+  // Mouse down
+  container.addEventListener('mousedown', function(e) {
+    if (e.button === 2) {
+      startSelectionBox(e);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const target = getCanvasItemAt(e);
+      if (target) {
+        const item = state.items.find(i => i.id === target.id);
+        if (item) {
+          const rect = document.getElementById(`item-${item.id}`).getBoundingClientRect();
+          const rx = (e.clientX - rect.left) / rect.width;
+          const ry = (e.clientY - rect.top) / rect.height;
+          addPin(item.id, rx, ry);
+          return;
+        }
+      }
+    }
+    // If brush/eraser active, prepare to draw on mousedown, but allow selection on click
+    if ((state.drawing || state.erasing) && state.brushItemId !== null) {
+      const t = getCanvasItemAt(e);
+      if (t && t.id === state.brushItemId) {
+        state._isBrushing = true;
+        state._didBrush = false;
+        return;
+      }
+    }
+    const target = getCanvasItemAt(e);
+    if (target) {
+      const item = state.items.find(i => i.id === target.id);
+      if (item) {
+        const el = document.getElementById(`item-${item.id}`);
+        let isResize = false;
+        const handle = el.querySelector('.resize-handle');
+        if (handle) {
+          const hr = handle.getBoundingClientRect();
+          if (e.clientX >= hr.left - 8 && e.clientX <= hr.right + 8 &&
+              e.clientY >= hr.top - 8 && e.clientY <= hr.bottom + 8) {
+            isResize = true;
+          }
+        }
+        if (!isResize) {
+          const r = el.getBoundingClientRect();
+          if (e.clientX >= r.right - 20 && e.clientX <= r.right + 8 && e.clientY >= r.bottom - 20 && e.clientY <= r.bottom + 8) {
+            isResize = true;
+          }
+        }
+        if (isResize) {
+          state.resizing = {id: item.id, startX: e.clientX, startY: e.clientY, startW: item.w, startH: item.h};
+          // Save original dimensions of all selected items for proportional scaling
+          state._resizeOrigins = {};
+          state.selectedIds.forEach(id => {
+            const it = state.items.find(i => i.id === id);
+            if (it) state._resizeOrigins[id] = {w: it.w, h: it.h};
+          });
+          return;
+        }
+        // Save multi-selection list before selectItem clears it
+        const multiIds = [...state.selectedIds];
+        if (multiIds.length > 0) {
+          [item.id, ...multiIds].forEach(id => {
+            const it = state.items.find(i => i.id === id);
+            if (it) { it._dragOrigX = it.x; it._dragOrigY = it.y; }
+          });
+        }
+        state.dragging = {id: item.id, startX: e.clientX, startY: e.clientY, origX: item.x, origY: item.y, multiIds: multiIds};
+        selectItem(item.id);
+        return;
+      }
+    }
+    state.isPanning = true;
+    state.panStart = {x: e.clientX, y: e.clientY, panX: state.pan.x, panY: state.pan.y};
+    container.style.cursor = 'grabbing';
+    deselectAll();
+    hideQuickToolbar();
+  });
+
+  // Mouse move
+  container.addEventListener('mousemove', function(e) {
+    if (state.resizing) {
+      const dx = e.clientX - state.resizing.startX;
+      const dy = e.clientY - state.resizing.startY;
+      const item = state.items.find(i => i.id === state.resizing.id);
+      if (item) {
+        const ratio = state.resizing.startH / state.resizing.startW;
+        const newW = Math.max(20, state.resizing.startW + dx / state.zoom);
+        item.w = newW;
+        item.h = newW * ratio;
+        updateItemPosition(item);
+        // If multi-selected, scale all selected proportionally
+        if (state.selectedIds.length > 0) {
+          const scale = newW / state.resizing.startW;
+          state.selectedIds.forEach(id => {
+            if (id === state.resizing.id) return;
+            const it = state.items.find(i => i.id === id);
+            if (it && state._resizeOrigins && state._resizeOrigins[id]) {
+              const orig = state._resizeOrigins[id];
+              it.w = Math.max(20, orig.w * scale);
+              it.h = it.w * (orig.h / orig.w);
+              updateItemPosition(it);
+            }
+          });
+        }
+        saveState();
+      }
+      return;
+    }
+    if (state.dragging) {
+      const dx = (e.clientX - state.dragging.startX) / state.zoom;
+      const dy = (e.clientY - state.dragging.startY) / state.zoom;
+      const item = state.items.find(i => i.id === state.dragging.id);
+      if (item) {
+        // Move all multi-selected items
+        const multiIds = state.dragging.multiIds || [];
+        if (multiIds.length > 0) {
+          const allIds = [state.dragging.id, ...multiIds];
+          allIds.forEach(id => {
+            const it = state.items.find(i => i.id === id);
+            if (it && it._dragOrigX !== undefined) {
+              it.x = it._dragOrigX + dx;
+              it.y = it._dragOrigY + dy;
+              updateItemPosition(it);
+            }
+          });
+        } else {
+          item.x = state.dragging.origX + dx;
+          item.y = state.dragging.origY + dy;
+          updateItemPosition(item);
+        }
+        // Update toolbar
+        const toolbar = document.getElementById('quick-toolbar');
+        if (toolbar.classList.contains('show')) {
+          const el = document.getElementById(`item-${item.id}`);
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            const canvasRect = document.getElementById('canvas-area').getBoundingClientRect();
+            toolbar.style.left = (rect.left - canvasRect.left + rect.width/2) + 'px';
+            toolbar.style.top = Math.max(4, (rect.top - canvasRect.top - 40)) + 'px';
+          }
+        }
+      }
+      return;
+    }
+    if (state.isPanning) {
+      const dx = e.clientX - state.panStart.x;
+      const dy = e.clientY - state.panStart.y;
+      state.pan.x = state.panStart.panX + dx;
+      state.pan.y = state.panStart.panY + dy;
+      renderCanvas();
+      return;
+    }
+    if (state._isBrushing) {
+      drawOnItem(e, state.brushItemId);
+      state._didBrush = true;
+      return;
+    }
+    if (state.selectionBox) {
+      updateSelectionBox(e);
+      return;
+    }
+  });
+
+  // Mouse up
+  container.addEventListener('mouseup', function(e) {
+    if (state._isBrushing && !state._didBrush) {
+      const t = getCanvasItemAt(e);
+      if (t && t.id === state.brushItemId) {
+        selectItem(t.id);
+        // Re-open brush/eraser dropdown since selectItem rebuilds toolbar
+        if (state.drawing) toggleDropdown('brush-dropdown', t.id);
+        if (state.erasing) toggleDropdown('eraser-dropdown', t.id);
+      }
+    }
+    state._isBrushing = false;
+    state._didBrush = false;
+    state._lastBrushX = undefined;
+    state._lastBrushY = undefined;
+    if (state.dragging) {
+      [state.dragging.id, ...state.selectedIds].forEach(id => {
+        const it = state.items.find(i => i.id === id);
+        if (it) delete it._dragOrigX;
+        if (it) delete it._dragOrigY;
+      });
+      saveUndoState();
+      state.dragging = null;
+      saveState();
+    }
+    if (state.resizing) { saveUndoState(); state.resizing = null; state._resizeOrigins = null; saveState(); }
+    if (state.isPanning) {
+      state.isPanning = false;
+      container.style.cursor = 'grab';
+    }
+    if (state.selectionBox) { endSelectionBox(e); }
+  });
+
+  container.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+};
+
+// ========== START ==========
+init();
+</script>
+</body>
+</html>
