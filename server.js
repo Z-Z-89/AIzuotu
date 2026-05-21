@@ -49,10 +49,10 @@ app.all('/api/fetch', express.json({ limit: '10mb' }), async (req, res) => {
   const { url, method, headers, body: reqBody } = req.body;
   if (!url) return res.status(400).json({ error: 'Missing url' });
   try {
-    const options = { method: method || 'GET', headers: { 'User-Agent': 'Mozilla/5.0', ...(headers || {}) }, timeout: 300000 };
+    const options = { method: method || 'GET', headers: { 'User-Agent': 'Mozilla/5.0', ...(headers || {}) }, timeout: 1800000 };
     if (reqBody && method !== 'GET') options.body = typeof reqBody === 'string' ? reqBody : JSON.stringify(reqBody);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000);
+    const timeout = setTimeout(() => controller.abort(), 1800000);
     const apiRes = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeout);
     const buf = await apiRes.arrayBuffer();
@@ -116,7 +116,7 @@ app.post('/api/proxy', async (req, res) => {
           hostname: parsed.hostname, port: parsed.port || (isHttps ? 443 : 80),
           path: parsed.pathname + parsed.search, method: 'POST',
           headers: reqHeaders,
-          timeout: 300000
+          timeout: 1800000
         }, (res2) => {
         let chunks = [];
         res2.on('data', chunk => chunks.push(chunk));
@@ -167,7 +167,7 @@ app.post('/api/proxy-image', async (req, res) => {
         hostname: parsed.hostname, port: parsed.port || (isHttps ? 443 : 80),
         path: parsed.pathname + parsed.search, method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(body) },
-        timeout: 300000
+        timeout: 1800000
       }, (res2) => {
         let chunks = [];
         res2.on('data', c => chunks.push(c));
