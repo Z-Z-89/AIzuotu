@@ -71,12 +71,41 @@ app.post('/api/proxy', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields: url, apiKey, model, messages' });
   }
 
-  let base = url.replace(/\/+$/, '');
-  const v1m = base.match(/(\/v1)\/?$/i);
-  base = v1m ? base.slice(0, -v1m[0].length) + '/v1' : base + '/v1';
-  const targetUrl = base + '/chat/completions';
-  console.log('Proxy URL:', targetUrl, 'Model:', model);
-  const body = JSON.stringify({ model, messages, max_tokens: maxTokens || 1024, stream: false });
+  const base = url.replace(/\/+$/, '');
+  const isGemini = base.includes('generativelanguage.googleapis.com');
+  let targetUrl, reqBody, reqHeaders;
+
+  if (isGemini) {
+    targetUrl = `${base}/models/${model}:generateContent`;
+    const sysMsg = messages.find(m => m.role === 'system');
+    const contents = messages.filter(m => m.role !== 'system').map(msg => {
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      const parts = [];
+      if (typeof msg.content === 'string') {
+        parts.push({ text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === 'text') parts.push({ text: part.text });
+          else if (part.type === 'image_url') {
+            const m = (part.image_url?.url || '').match(/^data:(image\/\w+);base64,(.+)$/);
+            if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
+          }
+        }
+      }
+      return { role, parts };
+    });
+    const geminiBody = { contents };
+    if (sysMsg) geminiBody.system_instruction = { parts: [{ text: typeof sysMsg.content === 'string' ? sysMsg.content : '' }] };
+    reqBody = JSON.stringify(geminiBody);
+    reqHeaders = { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey, 'Content-Length': Buffer.byteLength(reqBody) };
+  } else {
+    const v1m = base.match(/(\/v1)\/?$/i);
+    const v1base = v1m ? base.slice(0, -v1m[0].length) + '/v1' : base + '/v1';
+    targetUrl = v1base + '/chat/completions';
+    reqBody = JSON.stringify({ model, messages, max_tokens: maxTokens || 1024, stream: false });
+    reqHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(reqBody) };
+  }
+  console.log('Proxy:', isGemini ? 'Gemini' : 'OpenAI', targetUrl, 'Model:', model, 'Body size:', reqBody.length);
 
   try {
       const data = await new Promise((resolve, reject) => {
@@ -86,11 +115,7 @@ app.post('/api/proxy', async (req, res) => {
         const req2 = requester.request({
           hostname: parsed.hostname, port: parsed.port || (isHttps ? 443 : 80),
           path: parsed.pathname + parsed.search, method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Length': Buffer.byteLength(body)
-          },
+          headers: reqHeaders,
           timeout: 300000
         }, (res2) => {
         let chunks = [];
@@ -109,16 +134,17 @@ app.post('/api/proxy', async (req, res) => {
       });
       req2.on('error', e => reject({ status: 500, text: e.message }));
       req2.on('timeout', () => { req2.destroy(); reject({ status: 500, text: 'Timeout' }); });
-      req2.write(body);
+      req2.write(reqBody);
       req2.end();
     });
     console.log(`API OK - choices:${data.choices?.length || 0} model:${data.model}`);
     res.json(data);
   } catch (err) {
-    const status = err.status || 500;
-    const text = err.text || err.message || 'Unknown error';
-    console.error(`Proxy error ${status}: ${text.substring(0,200)}`);
-    res.status(status).json({ error: text, status: status });
+    console.error('PROXY CATCH:', err);
+    const status = (err && err.status) || 500;
+    const text = err ? (err.text || err.message || JSON.stringify(err)) : 'Unknown error';
+    console.error(`Proxy error ${status}: ${String(text).substring(0,500)}`);
+    res.status(status).json({ error: String(text).substring(0, 300), status });
   }
 });
 

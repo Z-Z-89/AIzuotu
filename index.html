@@ -351,8 +351,74 @@ const state = {
   bottomVideoResolution: '480p'
 };
 
+// ========== PENDING TASK PERSISTENCE (survives page refresh) ==========
+function getPendingTasks() {
+  try { return JSON.parse(localStorage.getItem('aiecom_pending_tasks') || '[]'); } catch { return []; }
+}
+function savePendingTask(task) {
+  const tasks = getPendingTasks().filter(t => t.taskId !== task.taskId);
+  tasks.push(Object.assign({ startedAt: Date.now() }, task));
+  localStorage.setItem('aiecom_pending_tasks', JSON.stringify(tasks));
+}
+function removePendingTask(taskId) {
+  const tasks = getPendingTasks().filter(t => t.taskId !== taskId);
+  localStorage.setItem('aiecom_pending_tasks', JSON.stringify(tasks));
+}
+async function pollPendingTask(task) {
+  const cfg = getActiveApiConfig(task.apiType || 'image');
+  if (!cfg) { addLog(`❌ 恢复任务 ${task.taskId} 失败: 未配置 ${task.apiType||'image'} 模型`); removePendingTask(task.taskId); return; }
+  const baseUrl = (cfg.url || 'https://xais.dchai.cn').replace(/\/+$/, '');
+  addLog(`🔄 正在恢复第 ${task.idx} 张${task.type}...`);
+  let resultKey = null;
+  for (let p = 0; p < 120; p++) {
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+      const pollRes = await fetch(BASE_URL + '/api/fetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: baseUrl + '/xais/workerTaskWait?json=1&id=' + encodeURIComponent(task.taskId),
+          method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+        })
+      });
+      const pollText = await pollRes.text().catch(() => '');
+      let pollData;
+      try { pollData = JSON.parse(pollText); } catch { continue; }
+      if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') { addLog(`恢复任务 ${task.taskId} 失败: ${pollData.error}`); break; }
+      const isImageDone = pollData.result?.length > 0 && (!pollData.error || pollData.error === 'null' || pollData.error === 'null\n');
+      const isVideoDone = pollData.progress === 100 && pollData.result?.length > 0;
+      if (task.apiType === 'video' ? isVideoDone : isImageDone) { resultKey = pollData.result[0]; break; }
+    } catch(e) { /* retry */ }
+  }
+  if (!resultKey) { addLog(`第 ${task.idx} 张${task.type}恢复失败: 未获取到结果`); removePendingTask(task.taskId); return; }
+  try {
+    const attRes = await fetch(BASE_URL + '/api/fetch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: baseUrl + '/xais/attUrls?att=' + encodeURIComponent(resultKey),
+        method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+      })
+    });
+    const attText = await attRes.text().catch(() => '');
+    let attData;
+    try { attData = JSON.parse(attText); } catch { attData = null; }
+    const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
+    fetchImageAndAdd(finalUrl, null, `🔄 恢复成功: 第 ${task.idx} 张${task.type}`, task.x, task.y, task.w, task.h);
+  } catch(e) { addLog(`第 ${task.idx} 张${task.type}恢复失败: ${e.message}`); }
+  removePendingTask(task.taskId);
+}
+function resumePendingTasks() {
+  const tasks = getPendingTasks();
+  if (!tasks.length) return;
+  const expired = Date.now() - 1800000; // 30 min timeout
+  tasks.forEach(t => {
+    if (t.startedAt && t.startedAt < expired) { removePendingTask(t.taskId); return; }
+    pollPendingTask(t);
+  });
+}
+
 // ========== INIT ==========
-function init() {
+async function init() {
+  await resolveBaseUrl();
   loadState();
   applyTheme(state.settings.theme);
   renderBottomBar();
@@ -386,6 +452,7 @@ function init() {
   _suppressPlatformLog = true;
   onPlatformChange();
   _suppressPlatformLog = false;
+  resumePendingTasks();
 }
 
 // ========== PERSISTENCE ==========
@@ -539,7 +606,7 @@ function renderPins(item) {
     item.pins.forEach(pin => {
       const dot = document.createElement('div');
       dot.className = 'pin-dot';
-      dot.textContent = '📍';
+      dot.textContent = '📍' + pin.idx;
       dot.style.left = pin.rx * item.w + 'px';
       dot.style.top = pin.ry * item.h + 'px';
       el.appendChild(dot);
@@ -1121,9 +1188,17 @@ function getActiveApiConfig(type) {
   return null;
 }
 
-const BASE_URL = 'https://aizuotu.onrender.com';
-const PROXY_URL = BASE_URL + '/api/proxy';
+let BASE_URL = 'https://aizuotu.onrender.com';
+let PROXY_URL = BASE_URL + '/api/proxy';
 
+async function resolveBaseUrl() {
+  for (const url of ['http://localhost:3001', 'https://aizuotu.onrender.com']) {
+    try {
+      const res = await fetch(url + '/api/health');
+      if (res.ok) { BASE_URL = url; PROXY_URL = url + '/api/proxy'; return; }
+    } catch {}
+  }
+}
 async function checkProxy() {
   try {
     const res = await fetch(BASE_URL + '/api/health');
@@ -1158,6 +1233,9 @@ async function callAI(type, systemPrompt, userContent, maxTok) {
       const data = await res.json();
       const msg = data.choices?.[0]?.message;
       let content = msg?.content;
+      if (!content && data.candidates) {
+        content = data.candidates.map(c => c.content?.parts?.map(p => p.text).filter(Boolean).join('\n')).filter(Boolean).join('\n');
+      }
       if (Array.isArray(content)) content = content.map(c => c.text || c.content || '').filter(Boolean).join('\n');
       if (content && typeof content === 'string') return content;
       const raw = JSON.stringify(data);
@@ -1710,6 +1788,7 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
       const taskId = startText.replace(/^"(.*)"$/, '$1').trim();
       if (!taskId) { addLog('Xais 未返回任务ID'); return; }
       addLog(`Xais 任务已提交: ${taskId}`);
+      savePendingTask({taskId, apiType:'image', type, x: bx, y: by, w, h, idx});
       let resultKey = null;
       for (let p = 0; p < 120; p++) {
         await new Promise(r => setTimeout(r, 5000));
@@ -1724,9 +1803,9 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
         let pollData;
         try { pollData = JSON.parse(pollText); } catch { continue; }
         if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') { addLog(`Xais 任务失败: ${pollData.error}`); break; }
-        if (pollData.progress === 100 && pollData.result && pollData.result.length > 0) { resultKey = pollData.result[0]; break; }
+        if (pollData.result && pollData.result.length > 0 && (!pollData.error || pollData.error === 'null' || pollData.error === 'null\n')) { resultKey = pollData.result[0]; break; }
       }
-      if (!resultKey) { addLog(`第 ${idx} 张${type}生成失败: 未获取到图片`); return; }
+      if (!resultKey) { removePendingTask(taskId); addLog(`第 ${idx} 张${type}生成失败: 未获取到图片`); return; }
       const attRes = await fetch(BASE_URL + '/api/fetch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1739,8 +1818,9 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
       try { attData = JSON.parse(attText); } catch { attData = null; }
       const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
       fetchImageAndAdd(finalUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+      removePendingTask(taskId);
       try { const p = JSON.parse(localStorage.getItem('aiecom_batch_plan')); if (p) { if (type==='主图') p.mainCompleted = (p.mainCompleted||0)+1; else p.detailCompleted = (p.detailCompleted||0)+1; localStorage.setItem('aiecom_batch_plan', JSON.stringify(p)); } } catch(e) {}
-    } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+    } catch(e) { removePendingTask(taskId); addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
   };
   img.onerror = () => addLog(`第 ${idx} 张${type}生成失败: 无法加载参考图`);
   img.src = refItem.src;
@@ -1962,6 +2042,7 @@ async function generateXaisVideo(promptList, refItem, duration, types, count, re
             const taskId = startText.replace(/^"(.*)"$/, '$1').trim();
             if (!taskId) { addLog(`Xais 未返回任务ID: ${startText.substring(0, 200)}`); completed++; return; }
             addLog(`Xais 任务已提交: ${taskId}`);
+            savePendingTask({taskId, apiType:'video', type: t+'视频', x: 200 + (idx % 3) * 160, y: 100 + Math.floor(idx / 3) * 260, w: 180, h: 320, idx: idx + 1});
             let resultKey = null;
             for (let p = 0; p < 120; p++) {
               await new Promise(r => setTimeout(r, 5000));
@@ -1987,6 +2068,7 @@ async function generateXaisVideo(promptList, refItem, duration, types, count, re
               }
             }
             if (!resultKey) {
+              removePendingTask(taskId);
               addLog(`${t}视频 ${i+1} 生成失败: 未获取到视频`);
               completed++;
               if (completed === total) addLog(`✅ ${total} 个视频全部生成完成！`);
@@ -2008,9 +2090,10 @@ async function generateXaisVideo(promptList, refItem, duration, types, count, re
             const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
             addLog(`${t}视频 ${i+1} 已完成`);
             fetchImageAndAdd(finalUrl, refItem, `${t}视频 ${i+1} 已生成`, 200 + (idx % 3) * 160, 100 + Math.floor(idx / 3) * 260, 180, 320);
+            removePendingTask(taskId);
             completed++;
             if (completed === total) addLog(`✅ ${total} 个视频全部生成完成！`);
-          } catch(e) { addLog(`${t}视频 ${i+1} 异常: ${e.message}`); }
+          } catch(e) { removePendingTask(taskId); addLog(`${t}视频 ${i+1} 异常: ${e.message}`); }
         }, i * 5000 + types.indexOf(t) * count * 8000);
       }
     });
@@ -2059,7 +2142,107 @@ function getTargetId() {
   return state.currentImageCursor || state.selectedId || state.items[0]?.id;
 }
 
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+async function replacePinWithPin(srcPinIdx, dstPinIdx) {
+  let srcItem, srcPin, dstItem, dstPin;
+  for (const item of state.items) {
+    if (!item.pins) continue;
+    for (const pin of item.pins) {
+      if (pin.idx === srcPinIdx) { srcItem = item; srcPin = pin; }
+      if (pin.idx === dstPinIdx) { dstItem = item; dstPin = pin; }
+    }
+  }
+  if (!srcItem || !srcPin || !dstItem || !dstPin) { addLog('⚠️ 未找到对应的定位标'); return; }
+  addLog(`正在将定位${srcPinIdx}的产品拼接到定位${dstPinIdx}...`);
+  try {
+    const srcImg = await loadImage(srcItem.src);
+    const dstImg = await loadImage(dstItem.src);
+    const c = document.createElement('canvas');
+    c.width = dstImg.width; c.height = dstImg.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(dstImg, 0, 0);
+    const cropSize = Math.min(srcImg.width, srcImg.height) * 0.4;
+    const sx = Math.max(0, srcPin.rx * srcImg.width - cropSize / 2);
+    const sy = Math.max(0, srcPin.ry * srcImg.height - cropSize / 2);
+    const dx = Math.max(0, dstPin.rx * dstImg.width - cropSize / 2);
+    const dy = Math.max(0, dstPin.ry * dstImg.height - cropSize / 2);
+    ctx.drawImage(srcImg, sx, sy, cropSize, cropSize, dx, dy, cropSize, cropSize);
+    c.toBlob(async (blob) => {
+      const reader = new FileReader();
+      reader.onload = async function() {
+        const compositeB64 = reader.result;
+        const newId = addCanvasItem('image', compositeB64, dstItem.x, dstItem.y, dstItem.w, dstItem.h);
+        addLog('拼接完成，正在发送到 AI 优化融合...');
+        const publicUrl = await uploadImageToHost(compositeB64);
+        if (!publicUrl) { addLog('⚠️ 上传失败'); return; }
+        const cfg = getActiveApiConfig('image');
+        if (!cfg) { addLog('⚠️ 未配置作图模型'); return; }
+        const reqId = String(Date.now()).slice(-11);
+        try {
+          const startRes = await fetch(BASE_URL + '/api/fetch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: cfg.url + '/xais/workerTaskStart', method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json', 'x-request-id': reqId },
+              body: JSON.stringify({ prompt: '优化融合这张图片，让拼接边缘自然过渡，光影协调统一，画面整体和谐自然。', model: cfg.model, ref: [publicUrl] })
+            })
+          });
+          const startText = await startRes.text().catch(() => '');
+          if (!startRes.ok) { addLog(`Xais 优化任务提交失败 (${startRes.status})`); return; }
+          const taskId = startText.replace(/^"(.*)"$/, '$1').trim();
+          if (!taskId) { addLog('Xais 未返回任务ID'); return; }
+          addLog(`Xais 优化任务已提交: ${taskId}`);
+          let resultKey = null;
+          for (let p = 0; p < 120; p++) {
+            await new Promise(r => setTimeout(r, 5000));
+            const pollRes = await fetch(BASE_URL + '/api/fetch', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: cfg.url + '/xais/workerTaskWait?json=1&id=' + encodeURIComponent(taskId),
+                method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+              })
+            });
+            const pollText = await pollRes.text().catch(() => '');
+            let pollData;
+            try { pollData = JSON.parse(pollText); } catch { continue; }
+            if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') { addLog(`Xais 优化失败: ${pollData.error}`); break; }
+        if (pollData.result && pollData.result.length > 0 && (!pollData.error || pollData.error === 'null' || pollData.error === 'null\n')) { resultKey = pollData.result[0]; break; }
+          }
+          if (!resultKey) { addLog('优化失败: 未获取到图片'); return; }
+          const attRes = await fetch(BASE_URL + '/api/fetch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: cfg.url + '/xais/attUrls?att=' + encodeURIComponent(resultKey),
+              method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+            })
+          });
+          const attText = await attRes.text().catch(() => '');
+          let attData;
+          try { attData = JSON.parse(attText); } catch { attData = null; }
+          const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
+          removeCanvasItem(newId);
+          fetchImageAndAdd(finalUrl, dstItem, `定位${dstPinIdx}产品替换优化完成`, dstItem.x, dstItem.y, dstItem.w, dstItem.h);
+        } catch(e) { addLog(`优化异常: ${e.message}`); }
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', 0.85);
+  } catch(e) { addLog('拼接失败: ' + e.message); }
+}
+
 function simulateAIResponse(text) {
+  const replaceMatch = text.match(/把定位(\d+).*?(?:替换|换到|放到).*?定位(\d+)/);
+  if (replaceMatch) {
+    replacePinWithPin(parseInt(replaceMatch[1]), parseInt(replaceMatch[2]));
+    return `正在将定位${replaceMatch[1]}的产品拼接到定位${replaceMatch[2]}位置...`;
+  }
   const lower = text.toLowerCase();
   if (lower.includes('分析') || lower.includes('卖点')) {
     aiAnalyze(getTargetId());
