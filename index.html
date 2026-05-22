@@ -1793,25 +1793,7 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
   const cfg = getActiveApiConfig('image');
   if (!cfg) { addLog(`第 ${idx} 张${type}生成失败: 未配置作图模型`); return; }
 
-  // Standard OpenAI-compatible image generation (UIUI, New AI, Official)
-  if (!cfg.url.includes('dchai.cn')) {
-    addLog(`[${cfg.model}] 正在生成第 ${idx} 张${type}...`);
-    const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
-    try {
-      const res = await fetch(BASE_URL + '/api/proxy-image', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: promptText, n: 1, size: sizeMap[type] || '1024x1024' })
-      });
-      if (!res.ok) { const e = await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
-      const data = await res.json();
-      const imgUrl = data.data?.[0]?.url;
-      if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
-      fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
-    } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
-    return;
-  }
-
-  addLog(`Xais: 正在上传参考图...`);
+  addLog(`正在上传参考图...`);
   const cc = document.createElement('canvas');
   const img = new Image();
   img.onload = async function() {
@@ -1823,6 +1805,27 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
     const publicUrl = await uploadImageToHost(b64);
     if (!publicUrl) { addLog('⚠️ 参考图上传失败'); return; }
     addLog('参考图已上传');
+
+    // Standard OpenAI-compatible image generation (UIUI, New AI, Official)
+    if (!cfg.url.includes('dchai.cn')) {
+      addLog(`[${cfg.model}] 正在生成第 ${idx} 张${type}...`);
+      const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
+      const refPrompt = `参考产品图片: ${publicUrl}\n请严格按照参考图中的产品外观、造型、配色、细节进行创作。\n${promptText}`;
+      try {
+        const res = await fetch(BASE_URL + '/api/proxy-image', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: refPrompt, n: 1, size: sizeMap[type] || '1024x1024' })
+        });
+        if (!res.ok) { const e = await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
+        const data = await res.json();
+        const imgUrl = data.data?.[0]?.url;
+        if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
+        fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+      } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+      return;
+    }
+
+    addLog(`Xais: 正在提交任务...`);
     const reqId = String(Date.now()).slice(-11);
     try {
       const startRes = await fetch(BASE_URL + '/api/fetch', {
