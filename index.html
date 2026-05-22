@@ -54,6 +54,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh
 .analysis-item .label{font-weight:600;font-size:12px;color:var(--accent);margin-bottom:2px}
 .analysis-item .content{font-size:13px;padding:4px 0;min-height:20px;outline:none;border-radius:4px;cursor:text;user-select:text}
 .analysis-item .content:focus{background:rgba(0,113,227,0.05);padding:4px 6px}
+.analysis-item .content *{font-size:13px!important;font-family:inherit!important;line-height:inherit!important;color:inherit!important}
 /* Chat Panel */
 #chat-section{flex:1;display:flex;flex-direction:column}
 #chat-section .section-header{border-bottom:none}
@@ -143,12 +144,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh
   </div>
   <div id="right-panel">
     <div class="right-section" id="analysis-section">
-      <div class="section-header">AI 分析面板 <button class="del-btn" onclick="clearAnalysis()">✕</button></div>
+      <div class="section-header">AI 分析面板 <button style="font-size:11px;padding:1px 8px;margin-left:4px;cursor:pointer;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:#fff" onclick="saveAnalysisToItem()">保存</button> <button class="del-btn" onclick="clearAnalysis()">✕</button></div>
       <div class="section-body" id="analysis-body">
-        <div class="analysis-item"><div class="label">产品识别</div><div class="content" contenteditable="true" id="analysis-product">点击图片后使用 AI 分析</div></div>
-        <div class="analysis-item"><div class="label">产品功能作用</div><div class="content" contenteditable="true" id="analysis-function">-</div></div>
-        <div class="analysis-item"><div class="label">核心卖点</div><div class="content" contenteditable="true" id="analysis-selling">-</div></div>
-        <div class="analysis-item"><div class="label">客户痛点</div><div class="content" contenteditable="true" id="analysis-pain">-</div></div>
+        <div class="analysis-item"><div class="label">产品识别</div><div class="content" contenteditable="true" id="analysis-product" onblur="saveCustomInfo()" onpaste="event.preventDefault();document.execCommand('insertText',false,(event.clipboardData||window.clipboardData).getData('text/plain'))">点击图片后使用 AI 分析</div></div>
+        <div class="analysis-item"><div class="label">产品功能作用</div><div class="content" contenteditable="true" id="analysis-function" onblur="saveCustomInfo()" onpaste="event.preventDefault();document.execCommand('insertText',false,(event.clipboardData||window.clipboardData).getData('text/plain'))">-</div></div>
+        <div class="analysis-item"><div class="label">核心卖点</div><div class="content" contenteditable="true" id="analysis-selling" onblur="saveCustomInfo()" onpaste="event.preventDefault();document.execCommand('insertText',false,(event.clipboardData||window.clipboardData).getData('text/plain'))">-</div></div>
+        <div class="analysis-item"><div class="label">客户痛点</div><div class="content" contenteditable="true" id="analysis-pain" onblur="saveCustomInfo()" onpaste="event.preventDefault();document.execCommand('insertText',false,(event.clipboardData||window.clipboardData).getData('text/plain'))">-</div></div>
       </div>
     </div>
     <div class="right-section" id="log-section">
@@ -372,6 +373,7 @@ const state = {
   bottomMainCount: 1,
   bottomScene: '',
   bottomSceneEnabled: false,
+  customInfo: null,
   bottomDetailCount: 1,
   bottomVideo: false,
   bottomVideoType: '带货', // supports comma-separated: '带货,展示'
@@ -948,34 +950,41 @@ function resizeForAPI(src, maxSize) {
   });
 }
 
-function executeTranslateMulti(id) {
+function executeTranslateMulti(idStr) {
   const lang = document.getElementById('translate-lang-multi')?.value || '英语';
-  const item = state.items.find(i => i.id === id);
-  if (!item) return;
-  addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
+  const ids = idStr.split(',').map(Number).filter(Boolean);
   document.getElementById('translate-dropdown-multi')?.classList.remove('show');
-  resizeForAPI(item.src, 2048).then(resizedSrc => {
-    const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。返回翻译后的图片。`;
-    const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
-    const userContent = [
-      {type:'text', text: prompt},
-      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
-    ];
-    callAI('image', sysPrompt, userContent, 2048).then(reply => {
-      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
-        if (urlMatch) {
-          fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
-          return;
-        }
-        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
-        if (mdMatch) {
-          fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
-          return;
-        }
-      }
-      addLog('AI翻译失败: API未返回图片');
-    }).catch((e) => { addLog('AI翻译失败: '+e.message); });
+  let delay = 0;
+  ids.forEach(id => {
+    const item = state.items.find(i => i.id === id);
+    if (!item) return;
+    setTimeout(() => {
+      addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
+      resizeForAPI(item.src, 2048).then(resizedSrc => {
+        const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。返回翻译后的图片。`;
+        const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
+        const userContent = [
+          {type:'text', text: prompt},
+          {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+        ];
+        callAI('image', sysPrompt, userContent, 2048).then(reply => {
+          if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+            const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
+            if (urlMatch) {
+              fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
+              return;
+            }
+            const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
+            if (mdMatch) {
+              fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
+              return;
+            }
+          }
+          addLog('AI翻译失败: API未返回图片');
+        }).catch((e) => { addLog('AI翻译失败: '+e.message); });
+      });
+    }, delay);
+    delay += 8000;
   });
 }
 
@@ -986,7 +995,7 @@ function executeTranslate(id) {
   addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
   document.getElementById('translate-dropdown').classList.remove('show');
   resizeForAPI(item.src, 2048).then(resizedSrc => {
-    const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。返回翻译后的图片。`;
+    const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。返回翻译后的图片。`;
     const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
     const userContent = [
       {type:'text', text: prompt},
@@ -1320,6 +1329,24 @@ function applyAnalysis(j, modelName, id) {
   addLog(`✅ AI 语言模型 [${modelName}] 分析完成`);
 }
 
+function saveCustomInfo() {
+  const el = id => document.getElementById(id);
+  const p = el('analysis-product')?.textContent?.trim();
+  const f = el('analysis-function')?.textContent?.trim();
+  const s = el('analysis-selling')?.textContent?.trim();
+  const pa = el('analysis-pain')?.textContent?.trim();
+  const hasData = p && p !== '点击图片后使用 AI 分析' && p !== '未识别';
+  if (hasData || (f && f !== '-' && f !== '未识别') || (s && s !== '-' && s !== '未识别')) {
+    state.customInfo = { product: p, function: f, selling: s, pain: pa };
+    // Sync to item.analysis to prevent panel from being overwritten
+    const item = state.items.find(i => i.id === state.selectedId || i.id === state.currentImageCursor);
+    if (item) { item.analysis = state.customInfo; }
+  } else {
+    state.customInfo = null;
+  }
+  saveState();
+}
+
 function showAnalysisOnPanel(a) {
   const el = id => document.getElementById(id);
   if (!a) {
@@ -1329,10 +1356,12 @@ function showAnalysisOnPanel(a) {
     el('analysis-pain').textContent = '-';
     return;
   }
-  el('analysis-product').textContent = a.product || '未识别';
-  el('analysis-function').textContent = a.function || '未识别';
-  el('analysis-selling').textContent = a.selling || '未识别';
-  el('analysis-pain').textContent = a.pain || '未识别';
+  // Prefer customInfo if user has edited the fields
+  const src = state.customInfo || a;
+  el('analysis-product').textContent = src.product || '未识别';
+  el('analysis-function').textContent = src.function || '未识别';
+  el('analysis-selling').textContent = src.selling || '未识别';
+  el('analysis-pain').textContent = src.pain || '未识别';
 }
 
 function aiAnalyze(id) {
@@ -1462,15 +1491,19 @@ function fetchImageAndAdd(imgUrl, srcItem, logMsg, optX, optY, optW, optH) {
 }
 
 async function uploadImageToHost(b64) {
-  try {
-    const res = await fetch(BASE_URL + '/api/upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: Uint8Array.from(atob(b64.split(',')[1] || b64), c => c.charCodeAt(0))
-    });
-    const data = await res.json();
-    return data.url || null;
-  } catch(e) { return null; }
+  const raw = b64.split(',')[1] || b64;
+  const body = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+  // Try Render first (publicly accessible for Xais), fall back to local
+  for (const host of ['https://aizuotu.onrender.com', BASE_URL].filter((v,i,a)=>a.indexOf(v)===i)) {
+    try {
+      const res = await fetch(host + '/api/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body
+      });
+      const data = await res.json();
+      if (data.url) return data.url;
+    } catch(e) {}
+  }
+  return null;
 }
 
 function fallbackWhiteBg(item) {
@@ -1789,6 +1822,31 @@ function handleBadgeRemoved(badge) {
 }
 
 // ========== IMAGE GENERATION ==========
+function parsePromptList(text) {
+  if (!text) return [];
+  let list = text.match(/[【\[]([^】\]]+)[】\]]/g);
+  if (list && list.length > 1) return list.map(p => p.replace(/[【\[\]】]/g,''));
+  const clean = text.replace(/\*{1,2}/g, '').replace(/#{1,6}\s*/g, '');
+  // If only one bracket pair, try splitting its content by numbers or blank lines
+  if (list && list.length === 1) {
+    const inner = list[0].replace(/[【\[\]】]/g,'');
+    const sub = inner.match(/(?:^|\n)\s*(?:\d+\s*[.、）\)]|[-*])\s*([\s\S]*?)(?=\n\s*(?:\d+\s*[.、）\)]|[-*])|\n*$)/g);
+    if (sub && sub.length > 1) return sub.map(s => s.replace(/^\s*(?:\d+\s*[.、）\)]|[-*])\s*/, '').trim()).filter(Boolean);
+    const sub2 = inner.split(/\n{2,}/).filter(s => s.trim().length > 20);
+    if (sub2.length > 1) return sub2;
+    const sub3 = inner.split('\n').filter(s => s.trim().length > 15);
+    if (sub3.length > 1) return sub3;
+  }
+  list = clean.match(/(?:^|\n)\s*\d+\s*[.、）\)]\s*([\s\S]*?)(?=\n\s*\d+\s*[.、）\)]|\n*$)/g);
+  if (list) list = list.map(s => s.replace(/^\s*\d+\s*[.、）\)]\s*/, '').trim()).filter(Boolean);
+  if (list && list.length > 1) return list;
+  list = clean.split(/\n{2,}/).filter(s => s.trim().length > 20);
+  if (list.length > 1) return list;
+  list = clean.split('\n').filter(s => s.trim().length > 15);
+  if (list.length > 1) return list;
+  return list && list.length === 1 ? [list[0].replace(/[【\[\]】]/g,'')] : [text];
+}
+
 async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
   const cfg = getActiveApiConfig('image');
   if (!cfg) { addLog(`第 ${idx} 张${type}生成失败: 未配置作图模型`); return; }
@@ -1808,20 +1866,41 @@ async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
 
     // Standard OpenAI-compatible image generation (UIUI, New AI, Official)
     if (!cfg.url.includes('dchai.cn')) {
+      const useVision = /gpt-image|gpt-4o-image/.test(cfg.model);
       addLog(`[${cfg.model}] 正在生成第 ${idx} 张${type}...`);
-      const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
-      const refPrompt = `参考产品图片: ${publicUrl}\n请严格按照参考图中的产品外观、造型、配色、细节进行创作。\n${promptText}`;
-      try {
-        const res = await fetch(BASE_URL + '/api/proxy-image', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: refPrompt, n: 1, size: sizeMap[type] || '1024x1024' })
-        });
-        if (!res.ok) { const e = await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
-        const data = await res.json();
-        const imgUrl = data.data?.[0]?.url;
-        if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
-        fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
-      } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+      if (useVision) {
+        // GPT image models: use chat completions with vision (supports reference image)
+        const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
+        try {
+          const msg = [{type:'text', text:promptText}, {type:'image_url', image_url:{url:publicUrl}}];
+          const res = await fetch(PROXY_URL, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ url:cfg.url, apiKey:cfg.key, model:cfg.model, messages:[{role:'user', content:msg}], maxTokens:2048 })
+          });
+          if (!res.ok) { const e=await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
+          const data = await res.json();
+          const content = data.choices?.[0]?.message?.content || '';
+          const m = content.match(/!\[image\]\(([^)]+)\)/);
+          const imgUrl = m ? m[1] : (content.match(/https?:\/\/[^\s"'>]+(?:png|jpg|jpeg|webp)/i) || [''])[0];
+          if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
+          fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+        } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+      } else {
+        // Standard text-to-image models (DALL-E, etc.)
+        const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
+        try {
+          const refPrompt = `参考产品图片: ${publicUrl}\n请严格按照参考图中的产品外观、造型、配色、细节进行创作。\n${promptText}`;
+          const res = await fetch(BASE_URL + '/api/proxy-image', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ url:cfg.url, apiKey:cfg.key, model:cfg.model, prompt:refPrompt, n:1, size:sizeMap[type]||'1024x1024' })
+          });
+          if (!res.ok) { const e=await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
+          const data = await res.json();
+          const imgUrl = data.data?.[0]?.url;
+          if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
+          fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+        } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+      }
       return;
     }
 
@@ -1895,16 +1974,17 @@ function generateMainImages(refItem, batchOffset) {
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
     const userContent = [
-      {type:'text', text:`围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【光影统一】：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。4.${state.bottomSceneEnabled?`【固定场景要求】：统一以【${state.bottomScene}】作为专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。`:'【场景要求】：请根据参考图中的产品特点，为所有图片设计统一且贴合产品的专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。'}5.【背景逻辑】：背景贴合设定场景风格，服务于产品，衬托质感或营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。6.【文案规范】：文案内容信息齐全，排版精致高级，主标题+核心卖点层级清晰，疏密得当；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。7.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`},
+      {type:'text', text:`${state.customInfo?`【自定义产品信息】产品名称:${state.customInfo.product||'未设置'}，功效:${state.customInfo.function||'未设置'}，核心卖点:${state.customInfo.selling||'未设置'}，客户痛点:${state.customInfo.pain||'未设置'}\n【必须遵守】每条提示词中描述图片上文案的部分，必须一字不差地使用以上自定义信息中的产品名称、功效原文和核心卖点原文，禁止自行编造、改写、缩写或添加自定义信息以外的任何产品描述文案。\n\n`:''}生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【光影统一】：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。4.【固定场景要求】：统一以${state.bottomSceneEnabled?`【${state.bottomScene}】`:'【根据产品特点设计的专属场景】'}作为专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。5.【背景逻辑】：背景贴合设定场景风格，服务于产品，衬托质感或营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。6.【文案规范】：文案内容信息齐全，排版精致高级，主标题+核心卖点层级清晰，疏密得当；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。7.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-  callAI('language', `围绕参考图中的产品，生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【光影统一】：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。4.${state.bottomSceneEnabled?`【固定场景要求】：统一以【${state.bottomScene}】作为专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。`:'【场景要求】：请根据参考图中的产品特点，为所有图片设计统一且贴合产品的专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。'}5.【背景逻辑】：背景贴合设定场景风格，服务于产品，衬托质感或营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。6.【文案规范】：文案内容信息齐全，排版精致高级，主标题+核心卖点层级清晰，疏密得当；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。7.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `${state.customInfo?`【自定义产品信息】产品名称:${state.customInfo.product||'未设置'}，功效:${state.customInfo.function||'未设置'}，核心卖点:${state.customInfo.selling||'未设置'}，客户痛点:${state.customInfo.pain||'未设置'}\n【必须遵守】每条提示词中描述图片上文案的部分，必须一字不差地使用以上自定义信息中的产品名称、功效原文和核心卖点原文，禁止自行编造、改写、缩写或添加自定义信息以外的任何产品描述文案。\n\n`:''}生成${count}张1:1电商主图提示词，文案用${lang}，符合${platform}规定。【统一调性规则】1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【光影统一】：全程采用柔和、高级的美妆级布光，光影干净有层次，拒绝死白、死黑、强对比、过曝/欠曝，保证产品质感不丢失。4.【固定场景要求】：统一以${state.bottomSceneEnabled?`【${state.bottomScene}】`:'【根据产品特点设计的专属场景】'}作为专属创作场景，所有图片均围绕该场景氛围、环境布局展开创作，场景风格统一协调。5.【背景逻辑】：背景贴合设定场景风格，服务于产品，衬托质感或营造氛围，禁止无意义的乱纹、纯文字、重复图案背景。6.【文案规范】：文案内容信息齐全，排版精致高级，主标题+核心卖点层级清晰，疏密得当；文案集中排布在背景区域，不覆盖产品；禁用"立即购买""下单"等购买引导词。7.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，妆容自然，与产品互动自然，不抢产品风头。每条提示词描述一张独立完整的主图，禁止分区描述。只返回${count}条，每条用【】包裹。`, userContent, 2048).then(prompts => {
     if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
       addLog('主图生成失败: AI 语言模型未返回提示词'); return;
     }
       addLog('AI 语言模型已返回提示词');
-      let promptList = prompts.match(/【([^】]+)】/g)?.map(p => p.replace(/[【】]/g,'')) || [];
+      let promptList = parsePromptList(prompts);
       if (promptList.length < count) {
+        addLog('原始内容(前300字): ' + prompts.substring(0,300));
         addLog(`⚠️ 只获取到 ${promptList.length} 条提示词，不足 ${count} 条，自动补齐`);
         while (promptList.length < count) {
           promptList.push(`${platform} ${lang} 主图 ${promptList.length + 1}`);
@@ -1946,16 +2026,17 @@ function generateDetailImages(refItem, batchOffset) {
     const b64 = c.toDataURL('image/jpeg', 0.6).split(',')[1];
     const last5 = count > 5 ? '，最后5张为产品场景展示图' : '';
     const userContent = [
-      {type:'text', text:`现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图${last5}。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。【全局固定场景设定】整套详情图统一固定场景为【${state.bottomSceneEnabled ? state.bottomScene : '根据产品特点设计'}】，所有画面风格、环境氛围、画面布景、场景元素全部围绕该指定场景统一创作，全程场景调性统一，每张图适配该场景做差异化构图展示。画面采用自然高级柔和光影，光影层次干净舒适，根据固定场景氛围适配对应背景风格，背景贴合场景主题，统一协调。围绕参考图中的产品创作，重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`},
+      {type:'text', text:`${state.customInfo?`【自定义产品信息】产品名称:${state.customInfo.product||'未设置'}，功效:${state.customInfo.function||'未设置'}，核心卖点:${state.customInfo.selling||'未设置'}，客户痛点:${state.customInfo.pain||'未设置'}\n【必须遵守】每条提示词中描述图片上文案的部分，必须一字不差地使用以上自定义信息中的产品名称、功效原文和核心卖点原文，禁止自行编造、改写、缩写或添加自定义信息以外的任何产品描述文案。\n\n`:''}现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图${last5}。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。【全局固定场景设定】整套详情图统一固定场景为【${state.bottomSceneEnabled ? state.bottomScene : '根据产品特点设计'}】，所有画面风格、环境氛围、画面布景、场景元素全部围绕该指定场景统一创作，全程场景调性统一，每张图适配该场景做差异化构图展示。画面采用自然高级柔和光影，光影层次干净舒适，根据固定场景氛围适配对应背景风格，背景贴合场景主题，统一协调。围绕参考图中的产品创作，重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`},
       {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`, detail:'low'}}
     ];
-  callAI('language', `现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图${last5}。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。【全局固定场景设定】整套详情图统一固定场景为【${state.bottomSceneEnabled ? state.bottomScene : '根据产品特点设计'}】，所有画面风格、环境氛围、画面布景、场景元素全部围绕该指定场景统一创作，全程场景调性统一，每张图适配该场景做差异化构图展示。画面采用自然高级柔和光影，光影层次干净舒适，根据固定场景氛围适配对应背景风格，背景贴合场景主题，统一协调。围绕参考图中的产品创作，重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`, userContent, 2048).then(prompts => {
+  callAI('language', `${state.customInfo?`【自定义产品信息】产品名称:${state.customInfo.product||'未设置'}，功效:${state.customInfo.function||'未设置'}，核心卖点:${state.customInfo.selling||'未设置'}，客户痛点:${state.customInfo.pain||'未设置'}\n【必须遵守】每条提示词中描述图片上文案的部分，必须一字不差地使用以上自定义信息中的产品名称、功效原文和核心卖点原文，禁止自行编造、改写、缩写或添加自定义信息以外的任何产品描述文案。\n\n`:''}现在你是一名设计大师，帮我设计一整套${count}张3:4比例电商详情图${last5}。文案内容丰富饱满、信息齐全，排版疏密匀称不稀疏单薄，层级清晰不杂乱，符合${platform}平台规范，整体视觉调性统一协调，画面内文案统一使用${lang}语种。【全局固定场景设定】整套详情图统一固定场景为【${state.bottomSceneEnabled ? state.bottomScene : '根据产品特点设计'}】，所有画面风格、环境氛围、画面布景、场景元素全部围绕该指定场景统一创作，全程场景调性统一，每张图适配该场景做差异化构图展示。画面采用自然高级柔和光影，光影层次干净舒适，根据固定场景氛围适配对应背景风格，背景贴合场景主题，统一协调。围绕参考图中的产品创作，重要：产品优先：严格复刻参考图产品外观、造型、配色、细节，产品必须是画面绝对视觉重心，质感清晰；**必须为每张图设计全新的产品摆放角度、朝向、姿态与构图，完全不受参考图原有摆放角度/朝向/站位的限制**，可采用不同倾斜角度、摆放方向、手持方式等，但不得改变产品本身形态，禁止添加产品以外的多余配饰。所有文案统一放置在背景空白区域，严禁遮挡覆盖产品主体。若画面有人物出镜，人物外貌五官贴合${lang}所属国家标准人种特征。全程禁止出现立即购买、下单、抢购等营销下单引导类词汇。先撰写整体统一设计思路说明，保障整套图片风格一致，再分别撰写单张画面提示词，每张侧重方向区分开，包含产品高清特写、核心功能卖点、使用场景、用户痛点解决等不同角度。总共输出${count}条详情图提示词，全部使用【】单独包裹。`, userContent, 2048).then(prompts => {
       if (!prompts || ['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(prompts)) {
         addLog('详情图生成失败: AI 语言模型未返回提示词'); return;
       }
       addLog('AI 语言模型已返回提示词');
-      let promptList = prompts.match(/【([^】]+)】/g)?.map(p => p.replace(/[【】]/g,'')) || [];
+      let promptList = parsePromptList(prompts);
       if (promptList.length < count) {
+        addLog('原始内容(前300字): ' + prompts.substring(0,300));
         addLog(`⚠️ 只获取到 ${promptList.length} 条提示词，不足 ${count} 条，自动补齐`);
         while (promptList.length < count) {
           promptList.push(`${platform} ${lang} 详情图 ${promptList.length + 1}`);
@@ -2923,7 +3004,7 @@ function showMultiToolbar(ids) {
     } else if (i === 1) {
       const dd = document.createElement('div');
       dd.className = 'tool-dropdown'; dd.id = 'translate-dropdown-multi';
-      dd.innerHTML = `<label>选择目标语言</label><select id="translate-lang-multi">${languages.map(l=>`<option value="${l}">${l}</option>`).join('')}</select><div class="dropdown-actions"><button onclick="executeTranslateMulti(${ids[0]})">翻译</button></div>`;
+      dd.innerHTML = `<label>选择目标语言</label><select id="translate-lang-multi">${languages.map(l=>`<option value="${l}">${l}</option>`).join('')}</select><div class="dropdown-actions"><button onclick="executeTranslateMulti('${ids.join(',')}')">翻译</button></div>`;
       wrap.appendChild(dd);
     }
     toolbar.appendChild(wrap);
@@ -3254,8 +3335,20 @@ function setupCanvasEvents() {
             }
           });
         }
-        saveState();
-      }
+  saveState();
+}
+
+function saveAnalysisToItem() {
+  saveCustomInfo();
+  const item = state.items.find(i => i.id === state.selectedId || i.id === state.currentImageCursor);
+  if (item) {
+    item.analysis = { ...(state.customInfo || {product:'',function:'',selling:'',pain:''}) };
+    saveState();
+    addLog('✅ 产品分析信息已保存到当前图片');
+  } else {
+    addLog('⚠️ 请先选中一张图片');
+  }
+}
       return;
     }
     if (state.dragging) {
