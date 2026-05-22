@@ -192,6 +192,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh
         <button class="modal-tab" onclick="switchApiChannel(this,'xais')">Xais 接口</button>
         <button class="modal-tab" onclick="switchApiChannel(this,'cici')">CicI API</button>
         <button class="modal-tab" onclick="switchApiChannel(this,'newai')">New AI</button>
+        <button class="modal-tab" onclick="switchApiChannel(this,'uiui')">UIUI API</button>
       </div>
       <div id="api-official">
         <div class="api-group">
@@ -299,6 +300,32 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);height:100vh
           <div class="model-display" id="video-cici-models"></div>
         </div>
       </div>
+      <div id="api-uiui" style="display:none">
+        <div class="api-group">
+          <h3>🤖 AI 语言模型 <span style="font-size:11px;color:#888;font-weight:400">(UIUI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: claude-sonnet-4-20250514" id="language-uiui-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 UIUI API 密钥" id="language-uiui-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg.uiuiapi.com" id="language-uiui-url"></div>
+          <div class="api-actions"><button onclick="saveApi('language','uiui')">保存</button><button onclick="clearApi('language','uiui')">清空</button></div>
+          <div class="model-display" id="language-uiui-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎨 AI 作图模型 <span style="font-size:11px;color:#888;font-weight:400">(UIUI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: gpt-image-2-2k全尺寸" id="image-uiui-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 UIUI API 密钥" id="image-uiui-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg.uiuiapi.com" id="image-uiui-url"></div>
+          <div class="api-actions"><button onclick="saveApi('image','uiui')">保存</button><button onclick="clearApi('image','uiui')">清空</button></div>
+          <div class="model-display" id="image-uiui-models"></div>
+        </div>
+        <div class="api-group">
+          <h3>🎬 AI 视频模型 <span style="font-size:11px;color:#888;font-weight:400">(UIUI)</span></h3>
+          <div class="api-field"><label>名称</label><input type="text" placeholder="例: sora-2" id="video-uiui-name"></div>
+          <div class="api-field"><label>密钥</label><input type="text" placeholder="您的 UIUI API 密钥" id="video-uiui-key"></div>
+          <div class="api-field"><label>接口</label><input type="text" placeholder="https://sg.uiuiapi.com" id="video-uiui-url"></div>
+          <div class="api-actions"><button onclick="saveApi('video','uiui')">保存</button><button onclick="clearApi('video','uiui')">清空</button></div>
+          <div class="model-display" id="video-uiui-models"></div>
+        </div>
+      </div>
 
       <div style="font-size:12px;color:#888">填写模型名称、API 密钥和接口 URL，按回车或点击保存。</div>
     </div>
@@ -339,7 +366,7 @@ const state = {
   currentImageCursor: null,
   currentPinCursor: null,
   selectedModel: {language:null, image:null, video:null},
-  settings: {language:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, image:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, video:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}}, theme:'light'},
+  settings: {language:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}, uiui:{name:'',url:'',key:'',models:[]}}, image:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}, uiui:{name:'',url:'',key:'',models:[]}}, video:{official:{name:'',url:'',key:'',models:[]}, xais:{name:'',url:'',key:'',models:[]}, cici:{name:'',url:'',key:'',models:[]}, newai:{name:'',url:'',key:'',models:[]}, uiui:{name:'',url:'',key:'',models:[]}}, theme:'light'},
   bottomLanguage: '中文',
   bottomPlatform: '淘宝',
   bottomMainCount: 1,
@@ -483,7 +510,7 @@ function loadState() {
       state.settings = data.settings;
       ['language','image','video'].forEach(t => {
         if (!state.settings[t]) state.settings[t] = {};
-        ['official','xais','cici','newai'].forEach(ch => {
+        ['official','xais','cici','newai','uiui'].forEach(ch => {
           if (!state.settings[t][ch]) state.settings[t][ch] = {name:'',url:'',key:'',models:[]};
           if (state.settings[t][ch].name === undefined) state.settings[t][ch].name = '';
         });
@@ -1169,14 +1196,14 @@ function getModelDisplay(type) {
   const sel = state.selectedModel[type];
   if (sel) return sel;
   const s = state.settings[type];
-  const models = [...(s?.official?.models||[]), ...(s?.xais?.models||[]), ...(s?.cici?.models||[]), ...(s?.newai?.models||[])];
+  const models = [...(s?.official?.models||[]), ...(s?.xais?.models||[]), ...(s?.cici?.models||[]), ...(s?.newai?.models||[]), ...(s?.uiui?.models||[])];
   return models[0] || '未配置';
 }
 
 function getActiveApiConfig(type) {
   const modelName = state.selectedModel[type];
   if (!modelName) return null;
-  for (const channel of ['official', 'xais', 'cici', 'newai']) {
+  for (const channel of ['official', 'xais', 'cici', 'newai', 'uiui']) {
     const models = state.settings[type]?.[channel]?.models || [];
     if (models.includes(modelName)) {
       const url = state.settings[type][channel].url;
@@ -1761,6 +1788,25 @@ function handleBadgeRemoved(badge) {
 async function generateXaisImage(promptText, refItem, bx, by, w, h, idx, type) {
   const cfg = getActiveApiConfig('image');
   if (!cfg) { addLog(`第 ${idx} 张${type}生成失败: 未配置作图模型`); return; }
+
+  // Standard OpenAI-compatible image generation (UIUI, New AI, Official)
+  if (!cfg.url.includes('dchai.cn')) {
+    addLog(`[${cfg.model}] 正在生成第 ${idx} 张${type}...`);
+    const sizeMap = { '主图': '1024x1024', '详情图': '768x1024' };
+    try {
+      const res = await fetch(BASE_URL + '/api/proxy-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cfg.url, apiKey: cfg.key, model: cfg.model, prompt: promptText, n: 1, size: sizeMap[type] || '1024x1024' })
+      });
+      if (!res.ok) { const e = await res.text().catch(()=>''); addLog(`第 ${idx} 张${type}生成失败 (${res.status})`); return; }
+      const data = await res.json();
+      const imgUrl = data.data?.[0]?.url;
+      if (!imgUrl) { addLog(`第 ${idx} 张${type}生成失败: 未返回图片URL`); return; }
+      fetchImageAndAdd(imgUrl, refItem, `第 ${idx} 张${type}已生成`, bx, by, w, h);
+    } catch(e) { addLog(`第 ${idx} 张${type}生成异常: ${e.message}`); }
+    return;
+  }
+
   addLog(`Xais: 正在上传参考图...`);
   const cc = document.createElement('canvas');
   const img = new Image();
@@ -2349,7 +2395,7 @@ function createModelPopup(btn) {
 function getModelsForType(type) {
   const s = state.settings[type];
   if (!s) return ['未配置模型'];
-  const allModels = [...(s.official?.models||[]), ...(s.xais?.models||[]), ...(s.cici?.models||[]), ...(s.newai?.models||[])];
+  const allModels = [...(s.official?.models||[]), ...(s.xais?.models||[]), ...(s.cici?.models||[]), ...(s.newai?.models||[]), ...(s.uiui?.models||[])];
   if (allModels.length === 0) return ['未配置模型'];
   return allModels;
 }
@@ -2395,7 +2441,7 @@ function switchSettingsTab(btn, tabId) {
 }
 
 function switchApiChannel(btn, channel) {
-  ['official','xais','cici','newai'].forEach(c => {
+  ['official','xais','cici','newai','uiui'].forEach(c => {
     const el = document.getElementById(`api-${c}`);
     if (el) el.style.display = 'none';
   });
@@ -2410,6 +2456,10 @@ function saveApi(modelType, channel) {
   const url = document.getElementById(`${modelType}-${channel}-url`).value.trim();
   if (!name || !key || !url) { addLog('请填写模型名称、API 密钥和接口 URL'); return; }
   if (!state.settings[modelType][channel].models) state.settings[modelType][channel].models = [];
+  ['official','xais','cici','newai','uiui'].filter(c=>c!==channel).forEach(c => {
+    const arr = state.settings[modelType][c]?.models;
+    if (arr) { const i = arr.indexOf(name); if (i!==-1) arr.splice(i,1); }
+  });
   state.settings[modelType][channel].models.push(name);
   state.settings[modelType][channel].name = name;
   state.settings[modelType][channel].url = url;
@@ -2418,7 +2468,7 @@ function saveApi(modelType, channel) {
   renderModelDisplays();
   saveState();
   const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
-  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI'})[channel] || channel;
+  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI', uiui:'UIUI'})[channel] || channel;
   addLog(`${labels[modelType]} ${chLabel}模型「${name}」已保存`);
   document.getElementById(`${modelType}-${channel}-name`).value = '';
   document.getElementById(`${modelType}-${channel}-key`).value = '';
@@ -2431,14 +2481,14 @@ function clearApi(modelType, channel) {
   renderModelDisplays();
   saveState();
   const labels = {language:'AI 语言', image:'AI 作图', video:'AI 视频'};
-  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI'})[channel] || channel;
+  const chLabel = ({official:'官方', xais:'Xais', cici:'CicI', newai:'New AI', uiui:'UIUI'})[channel] || channel;
   addLog(`${labels[modelType]} ${chLabel}接口已清空`);
 }
 
 function validateSelectedModels() {
   let changed = false;
   ['language','image','video'].forEach(type => {
-    const allModels = [...(state.settings[type]?.official?.models||[]), ...(state.settings[type]?.xais?.models||[]), ...(state.settings[type]?.cici?.models||[]), ...(state.settings[type]?.newai?.models||[])];
+    const allModels = [...(state.settings[type]?.official?.models||[]), ...(state.settings[type]?.xais?.models||[]), ...(state.settings[type]?.cici?.models||[]), ...(state.settings[type]?.newai?.models||[]), ...(state.settings[type]?.uiui?.models||[])];
     if (state.selectedModel[type] && !allModels.includes(state.selectedModel[type])) {
       state.selectedModel[type] = null;
       changed = true;
@@ -2454,7 +2504,7 @@ function validateSelectedModels() {
 
 function renderModelDisplays() {
   ['language','image','video'].forEach(type => {
-    ['official','xais','cici','newai'].forEach(channel => {
+    ['official','xais','cici','newai','uiui'].forEach(channel => {
       const container = document.getElementById(`${type}-${channel}-models`);
       if (!container) return;
       const models = state.settings[type]?.[channel]?.models || [];
