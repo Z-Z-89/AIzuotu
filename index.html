@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -672,11 +672,23 @@ function addCanvasItem(type, src, x, y, w, h) {
   addLog(`已添加${type==='video'?'视频':'图片'}到画布`);
   deselectAll();
   selectItem(id);
+  // Upload large data URLs to server to save localStorage space
+  if (src.startsWith('data:') && src.length > 50000) {
+    fetch(BASE_URL + '/api/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream' },
+      body: Uint8Array.from(atob(src.split(',')[1]), c => c.charCodeAt(0))
+    }).then(r => r.json()).then(d => { if (d.url) { item.src = d.url; saveState(); } }).catch(() => {});
+  }
   return id;
 }
 
 function removeCanvasItem(id) {
   saveUndoState();
+  const item = state.items.find(i => i.id === id);
+  if (item && item.src && !item.src.startsWith('data:')) {
+    const m = item.src.match(/\/api\/temp\/([^/?]+)/);
+    if (m) fetch(BASE_URL + '/api/temp/' + m[1], {method:'DELETE'}).catch(()=>{});
+  }
   state.items = state.items.filter(i => i.id !== id);
   if (state.selectedId === id) state.selectedId = null;
   state.selectedIds = state.selectedIds.filter(sid => sid !== id);
@@ -867,14 +879,17 @@ function executeWatermark(id) {
     ];
     callAI('image', sysPrompt, userContent, 2048).then(reply => {
       if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
-        if (urlMatch) {
-          fetchImageAndAdd(urlMatch[0], item, '✅ AI去水印完成');
-          return;
-        }
-        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
-        if (mdMatch) {
-          fetchImageAndAdd(mdMatch[1], item, '✅ AI去水印完成');
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
+        const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
+        if (imgUrl) {
+          const img = new Image(); img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            fetchImageAndAdd(c.toDataURL('image/jpeg', 0.92), item, '✅ AI去水印完成');
+          };
+          img.onerror = () => fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成');
+          img.src = imgUrl;
           return;
         }
       }
@@ -928,14 +943,17 @@ function executeWatermarkMulti(id) {
     ];
     callAI('image', sysPrompt, userContent, 2048).then(reply => {
       if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
-        if (urlMatch) {
-          fetchImageAndAdd(urlMatch[0], item, '✅ AI去水印完成');
-          return;
-        }
-        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
-        if (mdMatch) {
-          fetchImageAndAdd(mdMatch[1], item, '✅ AI去水印完成');
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
+        const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
+        if (imgUrl) {
+          const img = new Image(); img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+            c.getContext('2d').drawImage(img, 0, 0);
+            fetchImageAndAdd(c.toDataURL('image/jpeg', 0.92), item, '✅ AI去水印完成');
+          };
+          img.onerror = () => fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成');
+          img.src = imgUrl;
           return;
         }
       }
@@ -1596,15 +1614,15 @@ function fetchImageAndAdd(imgUrl, srcItem, logMsg, optX, optY, optW, optH) {
   const h = optH || (srcItem ? srcItem.h : 180);
   if (imgUrl.startsWith('data:')) { limitImgSize(imgUrl, 1920).then(s => { addCanvasItem('image', s, x, y, w, h); addLog(logMsg); }); return; }
   const keyMatch = imgUrl.match(/\/d5\/[^?]+/);
-  const finalUrl = (keyMatch && imgUrl.includes('aliyuncs.com')) ? 'https://svt1.dchai.cn/xais/img' + keyMatch[0] : imgUrl;
+  const finalUrl = keyMatch ? ('https://svt1.dchai.cn/xais/img' + keyMatch[0]) : imgUrl;
   fetch(BASE_URL + '/api/image-proxy?url=' + encodeURIComponent(finalUrl)).then(r => {
-    if (!r.ok) return Promise.reject(new Error('proxy ' + r.status));
+    if (!r.ok) return Promise.reject();
     return r.blob();
   }).then(blob => {
     const reader = new FileReader();
     reader.onload = function() { limitImgSize(reader.result, 1920).then(resizedSrc => { addCanvasItem('image', resizedSrc, x, y, w, h); addLog(logMsg); }); };
     reader.readAsDataURL(blob);
-  }).catch(e => { addLog('下载失败: ' + e.message); addCanvasItem('image', imgUrl, x, y, w, h); addLog(logMsg); });
+  }).catch(() => { addCanvasItem('image', imgUrl, x, y, w, h); addLog(logMsg); });
 }
 
 async function uploadImageToHost(b64) {
@@ -1625,6 +1643,17 @@ async function uploadImageToHost(b64) {
 
 function fallbackWhiteBg(item) {
   addLog('白底图生成失败');
+}
+
+function downloadAllImages(ids) {
+  const urls = ids.map(id => state.items.find(i => i.id === id)).filter(Boolean).map(i => i.src).filter(s => !s.startsWith('data:'));
+  if (urls.length > 0) {
+    fetch(BASE_URL + '/api/zip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) })
+      .then(r => r.blob()).then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'images.zip'; a.click(); })
+      .catch(() => { ids.forEach(id => downloadItem(id)); });
+  } else {
+    ids.forEach(id => downloadItem(id));
+  }
 }
 
 function downloadItem(id) {
@@ -3103,7 +3132,7 @@ function showMultiToolbar(ids) {
     {text:'变清晰', action:()=>ids.forEach(id=>aiEnhance(id))},
     {text:'AI分析', action:()=>ids.forEach(id=>aiAnalyze(id))},
     {text:'AI白底', action:()=>ids.forEach(id=>aiWhiteBg(id))},
-    {text:'下载', action:()=>ids.forEach(id=>downloadItem(id))},
+    {text:'下载', action:()=>downloadAllImages(ids)},
     {text:'删除', action:()=>{ids.forEach(id=>removeCanvasItem(id));hideQuickToolbar()}}
   ];
   btns.forEach((b, i) => {
@@ -3510,6 +3539,7 @@ function saveAnalysisToItem() {
       state.pan.x = state.panStart.panX + dx;
       state.pan.y = state.panStart.panY + dy;
       renderCanvas();
+      saveState();
       return;
     }
     if (state._isBrushing) {
@@ -3564,3 +3594,4 @@ init();
 </script>
 </body>
 </html>
+

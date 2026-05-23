@@ -5,6 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
+const archiver = require('archiver');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const TEMP_DIR = path.join(__dirname, 'temp_uploads');
@@ -18,7 +19,7 @@ app.get('/api/image-proxy', async (req, res) => {
   const imgUrl = req.query.url;
   if (!imgUrl) return res.status(400).json({error:'Missing url'});
   try {
-    const apiRes = await fetch(imgUrl, { timeout: 30000 });
+    const apiRes = await fetch(imgUrl, { timeout: 30000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } });
     if (!apiRes.ok) return res.status(apiRes.status).send('Upstream error');
     const buf = Buffer.from(await apiRes.arrayBuffer());
     res.set('Cache-Control', 'public, max-age=3600');
@@ -42,6 +43,11 @@ app.get('/api/temp/:name', (req, res) => {
   const file = path.join(TEMP_DIR, path.basename(req.params.name));
   if (!fs.existsSync(file)) return res.status(404).end();
   res.sendFile(file);
+});
+app.delete('/api/temp/:name', (req, res) => {
+  const file = path.join(TEMP_DIR, path.basename(req.params.name));
+  if (!fs.existsSync(file)) return res.status(404).end();
+  try { fs.unlinkSync(file); res.json({ok:true}); } catch(e) { res.status(500).json({error:e.message}); }
 });
 
 // Generic proxy for any API call (bypass CORS)
@@ -186,6 +192,29 @@ app.post('/api/proxy-image', async (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.text || err.message });
   }
+});
+
+app.post('/api/zip', express.json({ limit: '50mb' }), async (req, res) => {
+  const { urls } = req.body;
+  if (!urls || !Array.isArray(urls)) return res.status(400).json({ error: 'Missing urls array' });
+  const archive = new archiver.ZipArchive();
+  const bufs = []; archive.on('data', d => bufs.push(d));
+  const done = new Promise(resolve => archive.on('end', resolve));
+  let i = 0;
+  for (const url of urls) {
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const h = url.startsWith('https') ? https : http;
+        h.get(url, r => { if (r.statusCode !== 200) { resolve(null); return; } const c = []; r.on('data', d => c.push(d)); r.on('end', () => resolve(Buffer.concat(c))); }).on('error', () => resolve(null));
+      });
+      if (data) archive.append(data, { name: `image_${i++}.jpg` });
+    } catch(e) {}
+  }
+  await archive.finalize();
+  await done;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename=images.zip');
+  res.send(Buffer.concat(bufs));
 });
 
 process.on('uncaughtException', (err) => {
