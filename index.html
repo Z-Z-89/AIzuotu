@@ -961,6 +961,8 @@ function executeTranslateMulti(idStr) {
     setTimeout(() => {
       addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
       resizeForAPI(item.src, 2048).then(resizedSrc => {
+        const cfg = getActiveApiConfig('image');
+        if (cfg && cfg.url.includes('dchai.cn')) { translateXaisImage(item, lang, resizedSrc); return; }
         const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。返回翻译后的图片。`;
         const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
         const userContent = [
@@ -969,14 +971,20 @@ function executeTranslateMulti(idStr) {
         ];
         callAI('image', sysPrompt, userContent, 2048).then(reply => {
           if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-            const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
-            if (urlMatch) {
-              fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
-              return;
-            }
-            const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
-            if (mdMatch) {
-              fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
+            const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
+            const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
+            if (imgUrl) {
+              const img = new Image();
+              img.onload = () => {
+                const s = Math.min(400, img.naturalWidth, img.naturalHeight);
+                const r = img.naturalWidth / img.naturalHeight;
+                const dw = r >= 1 ? s : Math.round(s * r);
+                const dh = r >= 1 ? Math.round(s / r) : s;
+                addCanvasItem('image', imgUrl, item.x + 30, item.y + 30, dw, dh);
+                addLog(`✅ AI翻译完成：已翻译为${lang}`);
+              };
+              img.onerror = () => fetchImageAndAdd(imgUrl, item, `✅ AI翻译完成：已翻译为${lang}`);
+              img.src = imgUrl;
               return;
             }
           }
@@ -995,6 +1003,8 @@ function executeTranslate(id) {
   addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
   document.getElementById('translate-dropdown').classList.remove('show');
   resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const cfg = getActiveApiConfig('image');
+    if (cfg && cfg.url.includes('dchai.cn')) { translateXaisImage(item, lang, resizedSrc); return; }
     const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。返回翻译后的图片。`;
     const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
     const userContent = [
@@ -1003,20 +1013,97 @@ function executeTranslate(id) {
     ];
     callAI('image', sysPrompt, userContent, 2048).then(reply => {
       if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+\.(png|jpg|jpeg|webp)/i);
-        if (urlMatch) {
-          fetchImageAndAdd(urlMatch[0], item, `✅ AI翻译完成：已翻译为${lang}`);
-          return;
-        }
-        const mdMatch = reply.match(/]\(\s*(https?:\/\/[^\s)]+)/);
-        if (mdMatch) {
-          fetchImageAndAdd(mdMatch[1], item, `✅ AI翻译完成：已翻译为${lang}`);
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
+          const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
+        if (imgUrl) {
+          const img = new Image();
+          img.onload = () => {
+            const s = Math.min(400, img.naturalWidth, img.naturalHeight);
+            const r = img.naturalWidth / img.naturalHeight;
+            const dw = r >= 1 ? s : Math.round(s * r);
+            const dh = r >= 1 ? Math.round(s / r) : s;
+            addCanvasItem('image', imgUrl, item.x + 30, item.y + 30, dw, dh);
+            addLog(`✅ AI翻译完成：已翻译为${lang}`);
+          };
+          img.onerror = () => fetchImageAndAdd(imgUrl, item, `✅ AI翻译完成：已翻译为${lang}`);
+          img.src = imgUrl;
           return;
         }
       }
       addLog('AI翻译失败: API未返回图片');
     }).catch((e) => { addLog('AI翻译失败: '+e.message); });
   });
+}
+
+// ========== XAIS ASYNC TRANSLATE ==========
+function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+
+async function translateXaisImage(item, lang, resizedSrc) {
+  const cfg = getActiveApiConfig('image');
+  if (!cfg) return;
+  addLog('正在上传参考图...');
+  const publicUrl = await uploadImageToHost(resizedSrc);
+  if (!publicUrl) { addLog('⚠️ 参考图上传失败'); return; }
+  addLog('参考图已上传');
+  const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。`;
+  const g = gcd(Math.round(item.w), Math.round(item.h));
+  const rawRatio = Math.round(item.w / g) / Math.round(item.h / g);
+  const stdRatios = { '1:1':1, '4:3':1.333, '3:4':0.75, '16:9':1.778, '9:16':0.563, '2:3':0.667, '3:2':1.5 };
+  const ratio = Object.keys(stdRatios).reduce((a, b) => Math.abs(rawRatio - stdRatios[a]) < Math.abs(rawRatio - stdRatios[b]) ? a : b);
+  const reqId = String(Date.now()).slice(-11);
+  try {
+    const startRes = await fetch(BASE_URL + '/api/fetch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: cfg.url + '/xais/workerTaskStart', method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json', 'x-request-id': reqId },
+        body: JSON.stringify({ prompt, model: cfg.model, ref: [publicUrl], ratio })
+      })
+    });
+    if (!startRes.ok) { addLog(`翻译任务提交失败 (${startRes.status})`); return; }
+    const taskId = (await startRes.text()).replace(/^"(.*)"$/, '$1').trim();
+    if (!taskId) { addLog('Xais 未返回任务ID'); return; }
+    addLog(`翻译任务已提交: ${taskId}`);
+    let resultKey = null;
+    for (let p = 0; p < 120; p++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pollRes = await fetch(BASE_URL + '/api/fetch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: cfg.url + '/xais/workerTaskWait?json=1&id=' + encodeURIComponent(taskId),
+          method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+        })
+      });
+      const pollText = await pollRes.text().catch(() => '');
+      let pollData;
+      try { pollData = JSON.parse(pollText); } catch { continue; }
+      if (pollData.error && pollData.error !== 'null' && pollData.error !== 'null\n') { addLog(`翻译失败: ${pollData.error}`); break; }
+      if (pollData.result && pollData.result.length > 0) { resultKey = pollData.result[0]; break; }
+    }
+    if (!resultKey) { addLog('翻译失败: 未获取到图片'); return; }
+    const attRes = await fetch(BASE_URL + '/api/fetch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: cfg.url + '/xais/attUrls?att=' + encodeURIComponent(resultKey),
+        method: 'GET', headers: { 'Authorization': 'Bearer ' + cfg.key }
+      })
+    });
+    const attText = await attRes.text().catch(() => '');
+    let attData;
+    try { attData = JSON.parse(attText); } catch { attData = null; }
+    const finalUrl = attData?.download || 'https://svt1.dchai.cn/xais/img/' + resultKey;
+    const img = new Image();
+    img.onload = () => {
+      const s = Math.min(400, img.naturalWidth, img.naturalHeight);
+      const r = img.naturalWidth / img.naturalHeight;
+      const dw = r >= 1 ? s : Math.round(s * r);
+      const dh = r >= 1 ? Math.round(s / r) : s;
+      addCanvasItem('image', finalUrl, item.x + 30, item.y + 30, dw, dh);
+      addLog(`✅ AI翻译完成：已翻译为${lang}`);
+    };
+    img.onerror = () => fetchImageAndAdd(finalUrl, item, `✅ AI翻译完成：已翻译为${lang}`);
+    img.src = finalUrl;
+  } catch(e) { addLog(`翻译异常: ${e.message}`); }
 }
 
 // ========== BRUSH TOOL ==========
