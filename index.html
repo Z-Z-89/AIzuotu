@@ -371,6 +371,7 @@ const state = {
   bottomLanguage: '中文',
   bottomPlatform: '淘宝',
   bottomMainCount: 1,
+  translateRatio: 'auto',
   bottomScene: '',
   bottomSceneEnabled: false,
   customInfo: null,
@@ -535,6 +536,7 @@ function loadState() {
     if (data.bottomLanguage) state.bottomLanguage = data.bottomLanguage;
     if (data.bottomPlatform) state.bottomPlatform = data.bottomPlatform;
     if (data.bottomMainCount) state.bottomMainCount = data.bottomMainCount;
+    if (data.translateRatio) state.translateRatio = data.translateRatio;
     if (data.bottomScene !== undefined) state.bottomScene = data.bottomScene;
     if (data.bottomSceneEnabled !== undefined) state.bottomSceneEnabled = data.bottomSceneEnabled;
     if (data.bottomDetailCount) state.bottomDetailCount = data.bottomDetailCount;
@@ -892,6 +894,17 @@ function createTranslateDropdown(id) {
   div.innerHTML = `
     <label>选择目标语言</label>
     <select id="translate-lang">${opts}</select>
+    <label style="margin-top:4px;display:block;font-size:12px">输出比例</label>
+    <select id="translate-ratio" style="width:100%;font-size:12px">
+      <option value="auto" ${state.translateRatio==='auto'?'selected':''}>自动(默认)</option>
+      <option value="1:1" ${state.translateRatio==='1:1'?'selected':''}>1:1</option>
+      <option value="3:4" ${state.translateRatio==='3:4'?'selected':''}>3:4</option>
+      <option value="4:3" ${state.translateRatio==='4:3'?'selected':''}>4:3</option>
+      <option value="9:16" ${state.translateRatio==='9:16'?'selected':''}>9:16</option>
+      <option value="16:9" ${state.translateRatio==='16:9'?'selected':''}>16:9</option>
+      <option value="2:3" ${state.translateRatio==='2:3'?'selected':''}>2:3</option>
+      <option value="3:2" ${state.translateRatio==='3:2'?'selected':''}>3:2</option>
+    </select>
     <div class="dropdown-actions">
       <button onclick="executeTranslate(${id})">翻译</button>
     </div>
@@ -952,6 +965,9 @@ function resizeForAPI(src, maxSize) {
 
 function executeTranslateMulti(idStr) {
   const lang = document.getElementById('translate-lang-multi')?.value || '英语';
+  const ratio = document.getElementById('translate-ratio-multi')?.value || 'auto';
+  state.translateRatio = ratio;
+  saveState();
   const ids = idStr.split(',').map(Number).filter(Boolean);
   document.getElementById('translate-dropdown-multi')?.classList.remove('show');
   let delay = 0;
@@ -962,7 +978,7 @@ function executeTranslateMulti(idStr) {
       addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
       resizeForAPI(item.src, 2048).then(resizedSrc => {
         const cfg = getActiveApiConfig('image');
-        if (cfg && cfg.url.includes('dchai.cn')) { translateXaisImage(item, lang, resizedSrc); return; }
+        if (cfg && cfg.url.includes('dchai.cn')) { translateXaisImage(item, lang, resizedSrc, state.translateRatio); return; }
         const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。返回翻译后的图片。`;
         const sysPrompt = '你是电商图片翻译专家。根据用户指令将图片上的文字翻译成目标语言，保持图片其他内容完全不变。';
         const userContent = [
@@ -998,6 +1014,9 @@ function executeTranslateMulti(idStr) {
 
 function executeTranslate(id) {
   const lang = document.getElementById('translate-lang').value;
+  const ratio = document.getElementById('translate-ratio')?.value || 'auto';
+  state.translateRatio = ratio;
+  saveState();
   const item = state.items.find(i => i.id === id);
   if (!item) return;
   addLog(`AI 作图模型 [${getModelDisplay('image')}] 翻译为目标语言 ${lang}...`);
@@ -1038,7 +1057,7 @@ function executeTranslate(id) {
 // ========== XAIS ASYNC TRANSLATE ==========
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
 
-async function translateXaisImage(item, lang, resizedSrc) {
+async function translateXaisImage(item, lang, resizedSrc, ratio) {
   const cfg = getActiveApiConfig('image');
   if (!cfg) return;
   addLog('正在上传参考图...');
@@ -1046,11 +1065,8 @@ async function translateXaisImage(item, lang, resizedSrc) {
   if (!publicUrl) { addLog('⚠️ 参考图上传失败'); return; }
   addLog('参考图已上传');
   const prompt = `【严格约束-必须遵守】1.产品本身上的文字（如品牌名、产品名、型号、参数等）和logo绝对不要翻译，必须保持原样。2.只翻译背景/其他区域的文字等内容为${lang}。3.保持图片的布局、颜色、设计、产品、背景完全不变。4.如果图片中有人物出镜，将人物替换为${lang}国家人种特征的人物，五官、肤色、发型贴合该国特征，人物姿态、服饰、位置不变。`;
-  const g = gcd(Math.round(item.w), Math.round(item.h));
-  const rawRatio = Math.round(item.w / g) / Math.round(item.h / g);
-  const stdRatios = { '1:1':1, '4:3':1.333, '3:4':0.75, '16:9':1.778, '9:16':0.563, '2:3':0.667, '3:2':1.5 };
-  const ratio = Object.keys(stdRatios).reduce((a, b) => Math.abs(rawRatio - stdRatios[a]) < Math.abs(rawRatio - stdRatios[b]) ? a : b);
-  addLog(`翻译比率 ${ratio}，任务提交中...`);
+  const finalRatio = ratio === 'auto' ? (() => { const g = gcd(Math.round(item.w), Math.round(item.h)); const r = Math.round(item.w/g) / Math.round(item.h/g); const m = { '1:1':1, '4:3':1.333, '3:4':0.75, '16:9':1.778, '9:16':0.563, '2:3':0.667, '3:2':1.5 }; return Object.keys(m).reduce((a,b) => Math.abs(r - m[a]) < Math.abs(r - m[b]) ? a : b); })() : ratio;
+  addLog(`翻译比率 ${finalRatio}，任务提交中...`);
   const reqId = String(Date.now()).slice(-11);
   try {
     const startRes = await fetch(BASE_URL + '/api/fetch', {
@@ -1058,7 +1074,7 @@ async function translateXaisImage(item, lang, resizedSrc) {
       body: JSON.stringify({
         url: cfg.url + '/xais/workerTaskStart', method: 'POST',
         headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json', 'x-request-id': reqId },
-        body: JSON.stringify({ prompt, model: cfg.model, ref: [publicUrl], ratio })
+        body: JSON.stringify({ prompt, model: cfg.model, ref: [publicUrl], ratio: finalRatio })
       })
     });
     if (!startRes.ok) { addLog(`翻译任务提交失败 (${startRes.status})`); return; }
@@ -3092,7 +3108,7 @@ function showMultiToolbar(ids) {
     } else if (i === 1) {
       const dd = document.createElement('div');
       dd.className = 'tool-dropdown'; dd.id = 'translate-dropdown-multi';
-      dd.innerHTML = `<label>选择目标语言</label><select id="translate-lang-multi">${languages.map(l=>`<option value="${l}">${l}</option>`).join('')}</select><div class="dropdown-actions"><button onclick="executeTranslateMulti('${ids.join(',')}')">翻译</button></div>`;
+      dd.innerHTML = `<label>选择目标语言</label><select id="translate-lang-multi">${languages.map(l=>`<option value="${l}">${l}</option>`).join('')}</select><label style="margin-top:4px;display:block;font-size:12px">输出比例</label><select id="translate-ratio-multi" style="width:100%;font-size:12px"><option value="auto" ${state.translateRatio==='auto'?'selected':''}>自动(默认)</option><option value="1:1" ${state.translateRatio==='1:1'?'selected':''}>1:1</option><option value="3:4" ${state.translateRatio==='3:4'?'selected':''}>3:4</option><option value="4:3" ${state.translateRatio==='4:3'?'selected':''}>4:3</option><option value="9:16" ${state.translateRatio==='9:16'?'selected':''}>9:16</option><option value="16:9" ${state.translateRatio==='16:9'?'selected':''}>16:9</option><option value="2:3" ${state.translateRatio==='2:3'?'selected':''}>2:3</option><option value="3:2" ${state.translateRatio==='3:2'?'selected':''}>3:2</option></select><div class="dropdown-actions"><button onclick="executeTranslateMulti('${ids.join(',')}')">翻译</button></div>`;
       wrap.appendChild(dd);
     }
     toolbar.appendChild(wrap);
