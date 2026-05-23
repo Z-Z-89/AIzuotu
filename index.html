@@ -1050,6 +1050,7 @@ async function translateXaisImage(item, lang, resizedSrc) {
   const rawRatio = Math.round(item.w / g) / Math.round(item.h / g);
   const stdRatios = { '1:1':1, '4:3':1.333, '3:4':0.75, '16:9':1.778, '9:16':0.563, '2:3':0.667, '3:2':1.5 };
   const ratio = Object.keys(stdRatios).reduce((a, b) => Math.abs(rawRatio - stdRatios[a]) < Math.abs(rawRatio - stdRatios[b]) ? a : b);
+  addLog(`翻译比率 ${ratio}，任务提交中...`);
   const reqId = String(Date.now()).slice(-11);
   try {
     const startRes = await fetch(BASE_URL + '/api/fetch', {
