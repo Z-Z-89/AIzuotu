@@ -881,20 +881,54 @@ function executeWatermark(id) {
       if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
         const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
         const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
-        if (imgUrl) {
-          const img = new Image(); img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
-            c.getContext('2d').drawImage(img, 0, 0);
-            fetchImageAndAdd(c.toDataURL('image/jpeg', 0.92), item, '✅ AI去水印完成');
-          };
-          img.onerror = () => fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成');
-          img.src = imgUrl;
-          return;
-        }
+        if (imgUrl) { fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成'); return; }
       }
       addLog('AI去水印失败: API未返回图片');
     }).catch((e) => { addLog('AI去水印失败: '+e.message); });
+  });
+}
+
+function executeWatermarkMulti(id) {
+  const text = document.getElementById('wm-text-multi')?.value.trim();
+  const item = state.items.find(i => i.id === id);
+  if (!item) return;
+  document.getElementById('watermark-dropdown-multi')?.classList.remove('show');
+  addLog(`AI 作图模型 [${getModelDisplay('image')}] 去水印处理中...`);
+  resizeForAPI(item.src, 2048).then(resizedSrc => {
+    const wmText = text || '水印';
+    const prompt = `去除图片中的"${wmText}"印记。保持图片的产品、背景、颜色、文字、布局等其他所有内容完全不变，只移除"${wmText}"标记。返回处理后的图片。`;
+    const sysPrompt = `你是电商图片处理专家。只去除指定"${wmText}"标记，不修改图片其他任何内容。`;
+    const userContent = [
+      {type:'text', text: prompt},
+      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
+    ];
+    callAI('image', sysPrompt, userContent, 2048).then(reply => {
+      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
+        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
+        const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
+        if (imgUrl) { fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成'); return; }
+      }
+      addLog('AI去水印失败: API未返回图片');
+    }).catch((e) => { addLog('AI去水印失败: '+e.message); });
+  });
+}
+
+function resizeForAPI(src, maxSize) {
+  return new Promise(resolve => {
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      let w = img.width, h = img.height;
+      if (w > maxSize || h > maxSize) {
+        const ratio = Math.min(maxSize / w, maxSize / h);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+      }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
   });
 }
 
@@ -925,60 +959,6 @@ function createTranslateDropdown(id) {
     </div>
   `;
   return div;
-}
-
-function executeWatermarkMulti(id) {
-  const text = document.getElementById('wm-text-multi')?.value.trim();
-  const item = state.items.find(i => i.id === id);
-  if (!item) return;
-  document.getElementById('watermark-dropdown-multi')?.classList.remove('show');
-  addLog(`AI 作图模型 [${getModelDisplay('image')}] 去水印处理中...`);
-  resizeForAPI(item.src, 2048).then(resizedSrc => {
-    const wmText = text || '水印';
-    const prompt = `去除图片中的"${wmText}"印记。保持图片的产品、背景、颜色、文字、布局等其他所有内容完全不变，只移除水印标记。返回处理后的图片。`;
-    const sysPrompt = '你是电商图片处理专家。只去除指定水印，不修改图片其他任何内容。';
-    const userContent = [
-      {type:'text', text: prompt},
-      {type:'image_url', image_url:{url: resizedSrc, detail:'high'}}
-    ];
-    callAI('image', sysPrompt, userContent, 2048).then(reply => {
-      if (reply && !['NO_CONFIG','PROXY_ERROR','NO_IMAGE_SUPPORT'].includes(reply)) {
-        const urlMatch = reply.match(/https?:\/\/[^\s"')>]+(?:\.(?:png|jpg|jpeg|webp)(?:\?[^\s"')>]*)?|[^\s"')>]*)/i);
-        const imgUrl = urlMatch ? urlMatch[0] : (reply.match(/]\(\s*(https?:\/\/[^\s)]+)/) || [])[1];
-        if (imgUrl) {
-          const img = new Image(); img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
-            c.getContext('2d').drawImage(img, 0, 0);
-            fetchImageAndAdd(c.toDataURL('image/jpeg', 0.92), item, '✅ AI去水印完成');
-          };
-          img.onerror = () => fetchImageAndAdd(imgUrl, item, '✅ AI去水印完成');
-          img.src = imgUrl;
-          return;
-        }
-      }
-      addLog('AI去水印失败: API未返回图片');
-    }).catch((e) => { addLog('AI去水印失败: '+e.message); });
-  });
-}
-
-function resizeForAPI(src, maxSize) {
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = function() {
-      let w = img.width, h = img.height;
-      if (w > maxSize || h > maxSize) {
-        const ratio = Math.min(maxSize / w, maxSize / h);
-        w = Math.round(w * ratio); h = Math.round(h * ratio);
-      }
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve(c.toDataURL('image/jpeg', 0.85));
-    };
-    img.onerror = () => resolve(src);
-    img.src = src;
-  });
 }
 
 function executeTranslateMulti(idStr) {
@@ -1613,14 +1593,19 @@ function fetchImageAndAdd(imgUrl, srcItem, logMsg, optX, optY, optW, optH) {
   const w = optW || (srcItem ? srcItem.w : 180);
   const h = optH || (srcItem ? srcItem.h : 180);
   if (imgUrl.startsWith('data:')) { limitImgSize(imgUrl, 1920).then(s => { addCanvasItem('image', s, x, y, w, h); addLog(logMsg); }); return; }
-  const keyMatch = imgUrl.match(/\/d5\/[^?]+/);
+  const keyMatch = imgUrl.match(/\/d[56]\/[^?]+/);
   const finalUrl = keyMatch ? ('https://svt1.dchai.cn/xais/img' + keyMatch[0]) : imgUrl;
   fetch(BASE_URL + '/api/image-proxy?url=' + encodeURIComponent(finalUrl)).then(r => {
     if (!r.ok) return Promise.reject();
     return r.blob();
   }).then(blob => {
     const reader = new FileReader();
-    reader.onload = function() { limitImgSize(reader.result, 1920).then(resizedSrc => { addCanvasItem('image', resizedSrc, x, y, w, h); addLog(logMsg); }); };
+    reader.onload = function() { limitImgSize(reader.result, 1920).then(resizedSrc => {
+      fetch(BASE_URL + '/api/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' },
+        body: Uint8Array.from(atob(resizedSrc.split(',')[1]), c => c.charCodeAt(0))
+      }).then(r => r.json()).then(d => { addCanvasItem('image', d.url || resizedSrc, x, y, w, h); addLog(logMsg); }).catch(() => { addCanvasItem('image', resizedSrc, x, y, w, h); addLog(logMsg); });
+    }); };
     reader.readAsDataURL(blob);
   }).catch(() => { addCanvasItem('image', imgUrl, x, y, w, h); addLog(logMsg); });
 }
@@ -1667,26 +1652,41 @@ function downloadItem(id) {
     addLog('已下载素材');
     return;
   }
-  const img = new Image();
-  img.onload = function() {
-    const c = document.createElement('canvas');
-    c.width = Math.round(item.w);
-    c.height = Math.round(item.h);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  if (item.src.startsWith('data:')) {
+    const img = new Image();
+    img.onload = function() {
+      const c = document.createElement('canvas');
+      c.width = Math.round(item.w);
+      c.height = Math.round(item.h);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const a = document.createElement('a');
+      a.href = c.toDataURL('image/png');
+      a.download = `image_${id}.png`;
+      a.click();
+      addLog('已下载素材');
+    };
+    img.src = item.src;
+    return;
+  }
+  const proxyUrl = BASE_URL + '/api/image-proxy?url=' + encodeURIComponent(item.src);
+  fetch(proxyUrl).then(r => {
+    if (!r.ok) throw new Error();
+    return r.blob();
+  }).then(blob => {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = c.toDataURL('image/png');
+    a.href = url;
     a.download = `image_${id}.png`;
     a.click();
+    URL.revokeObjectURL(url);
     addLog('已下载素材');
-  };
-  img.onerror = function() {
+  }).catch(() => {
     const a = document.createElement('a');
     a.href = item.src;
     a.download = `image_${id}.png`;
     a.click();
     addLog('已下载素材');
-  };
-  img.src = item.src;
+  });
 }
 
 // ========== PIN SYSTEM ==========
@@ -2144,7 +2144,7 @@ function generateMainImages(refItem, batchOffset) {
       setTimeout(() => {
         const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
         const by = refItem ? refItem.y + ((idx-1) * 220) : 100;
-        const fullPrompt = `${promptText}。【单张图片的场景、构图、氛围描述 + 文案使用${lang}语言】。重要：1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。`;
+        const fullPrompt = `${promptText}。【单张图片的场景、构图、氛围描述 + 文案使用${lang}语言】。重要：1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，五官、肤色、发型贴合该国特征，妆容自然。`;
         generateXaisImage(fullPrompt, refItem, bx, by, 800, 800, idx, '主图');
       }, i * 4000);
     }
@@ -2196,7 +2196,7 @@ function generateDetailImages(refItem, batchOffset) {
         setTimeout(() => {
           const bx = refItem ? refItem.x + refItem.w + 30 + (batchOffset || 0) : 100;
           const by = refItem ? refItem.y + ((idx-1) * 240) : 100;
-          const fullPrompt = `${promptText}。画面内所有文案使用${lang}语言，文案置于背景区域，严禁遮挡覆盖产品，产品作为视觉核心清晰突出。重要：1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。`;
+          const fullPrompt = `${promptText}。画面内所有文案使用${lang}语言，文案置于背景区域，严禁遮挡覆盖产品，产品作为视觉核心清晰突出。重要：1.【产品本体铁律】：必须1:1复刻参考图产品的外观、造型、配色、所有细节，产品本身的形状、结构、毛量、光泽**绝对不允许做任何修改**，禁止添加、删减、变形任何部件。2.【构图角度自由】：必须为每张图设计全新的构图，产品的摆放角度、朝向、倾斜方向、手持方式、画面位置**完全不受参考图限制**，可自由变化，让每张图的视角都不同。3.【人物规范】：如有人物出镜，人物长相需符合${lang}国家人种特征，五官、肤色、发型贴合该国特征，妆容自然。背景风格与场景可随意更换，整体采用柔和自然高级光影，画面质感协调舒适。`;
           generateXaisImage(fullPrompt, refItem, bx, by, 140, 186, idx, '详情图');
         }, i * 4000);
       }
@@ -3346,7 +3346,7 @@ function setupCanvasEvents() {
               addCanvasItem('video', ev.target.result, x - 160, y - 120, 320, 240);
             } else {
               limitImgSize(ev.target.result, 1920).then(resizedSrc => {
-                const img = new Image();
+    const img = new Image(); img.crossOrigin = 'anonymous';
                 img.onload = function() {
                   addCanvasItem('image', resizedSrc, x - img.naturalWidth / 2, y - img.naturalHeight / 2, img.naturalWidth, img.naturalHeight);
                 };
